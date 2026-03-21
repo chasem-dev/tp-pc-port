@@ -7,6 +7,76 @@
 #include "JSystem/JUtility/JUTConsole.h"
 #include <gx.h>
 
+#ifdef TARGET_PC
+#include "pc_bswap.h"
+
+/* Byte-swap an entire ResFONT resource from big-endian to native.
+ * Called once before parsing. Safe to call on const data cast to mutable
+ * since the embedded font array is in the .rodata→.data segment. */
+static void pc_bswap_resfont(ResFONT* font) {
+    font->filesize = pc_bswap32(font->filesize);
+    font->numBlocks = pc_bswap32(font->numBlocks);
+
+    u8* pData = (u8*)font->data;
+    for (u32 i = 0; i < font->numBlocks; i++) {
+        u32* hdr = (u32*)pData;
+        hdr[0] = pc_bswap32(hdr[0]); /* magic */
+        hdr[1] = pc_bswap32(hdr[1]); /* size */
+        u32 blockSize = hdr[1];
+
+        switch (hdr[0]) {
+        case 'INF1': {
+            ResFONT::INF1* inf = (ResFONT::INF1*)pData;
+            inf->fontType    = pc_bswap16(inf->fontType);
+            inf->ascent      = pc_bswap16(inf->ascent);
+            inf->descent     = pc_bswap16(inf->descent);
+            inf->width       = pc_bswap16(inf->width);
+            inf->leading     = pc_bswap16(inf->leading);
+            inf->defaultCode = pc_bswap16(inf->defaultCode);
+            break;
+        }
+        case 'WID1': {
+            ResFONT::WID1* wid = (ResFONT::WID1*)pData;
+            wid->startCode = pc_bswap16(wid->startCode);
+            wid->endCode   = pc_bswap16(wid->endCode);
+            /* Width entries after the header are pairs of u8, no swap needed */
+            break;
+        }
+        case 'GLY1': {
+            ResFONT::GLY1* gly = (ResFONT::GLY1*)pData;
+            gly->startCode     = pc_bswap16(gly->startCode);
+            gly->endCode       = pc_bswap16(gly->endCode);
+            gly->cellWidth     = pc_bswap16(gly->cellWidth);
+            gly->cellHeight    = pc_bswap16(gly->cellHeight);
+            gly->textureSize   = pc_bswap32(gly->textureSize);
+            gly->textureFormat = pc_bswap16(gly->textureFormat);
+            gly->numRows       = pc_bswap16(gly->numRows);
+            gly->numColumns    = pc_bswap16(gly->numColumns);
+            gly->textureWidth  = pc_bswap16(gly->textureWidth);
+            gly->textureHeight = pc_bswap16(gly->textureHeight);
+            /* Texture bitmap data is tile-based GC format — handled by GX texture decoders */
+            break;
+        }
+        case 'MAP1': {
+            ResFONT::MAP1* map = (ResFONT::MAP1*)pData;
+            map->mappingMethod = pc_bswap16(map->mappingMethod);
+            map->startCode     = pc_bswap16(map->startCode);
+            map->endCode       = pc_bswap16(map->endCode);
+            map->numEntries    = pc_bswap16(map->numEntries);
+            /* Swap mapping table entries (u16 array after header) */
+            if (map->mappingMethod == 0 || map->mappingMethod == 2) {
+                u16 count = map->endCode - map->startCode + 1;
+                u16* entries = (u16*)(pData + 0x10);
+                pc_bswap16_array(entries, count);
+            }
+            break;
+        }
+        }
+        pData += blockSize;
+    }
+}
+#endif /* TARGET_PC */
+
 JUTResFont::JUTResFont() {
     initialize_state();
     JUTFont::initialize_state();
@@ -58,6 +128,22 @@ bool JUTResFont::protected_initiate(const ResFONT* pFont, JKRHeap* pHeap) {
     if (!pFont) {
         return false;
     }
+
+#ifdef TARGET_PC
+    /* Font data is big-endian and lives in read-only memory.
+     * Make a mutable copy and byte-swap it to native endian. */
+    {
+        u32 fontSz = ((const u8*)pFont)[8] << 24 | ((const u8*)pFont)[9] << 16 |
+                     ((const u8*)pFont)[10] << 8 | ((const u8*)pFont)[11];
+        ResFONT* mutFont = (ResFONT*)new (pHeap, 0) u8[fontSz];
+        if (mutFont) {
+            memcpy(mutFont, pFont, fontSz);
+            pc_bswap_resfont(mutFont);
+            pFont = mutFont;
+        }
+    }
+#endif
+
     mResFont = pFont;
     mValid = true;
 

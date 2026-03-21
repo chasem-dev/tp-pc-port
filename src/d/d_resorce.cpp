@@ -303,6 +303,10 @@ int dRes_info_c::loadResource() {
     JUT_ASSERT(709, mRes == NULL);
 
     s32 countFile = mArchive->countFile();
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] dRes_info_c::loadResource: %s countFile=%d countDir=%d\n",
+            mArchiveName ? mArchiveName : "?", countFile, mArchive->countDirectory());
+#endif
     mRes = new void*[countFile];
     if (mRes == NULL) {
         OSReport_Error("<%s.arc> setRes: res pointer buffer nothing !!\n", mArchiveName);
@@ -324,6 +328,12 @@ int dRes_info_c::loadResource() {
                 const char* tmp = mArchive->mStringTable + (mArchive->findIdxResource(fileIndex)->type_flags_and_name_offset & 0xFFFFFF);
 #endif
                 void* res = mArchive->getIdxResource(fileIndex);
+#ifdef TARGET_PC
+                if (countFile <= 20) {
+                    fprintf(stderr, "[PC]   loadRes: fileIdx=%d isFile=%d res=%p\n",
+                            fileIndex, mArchive->isFileEntry(fileIndex), res);
+                }
+#endif
 
                 if (res == NULL) {
                     OSReport_Error("<%s> res == NULL !!\n",
@@ -475,7 +485,7 @@ int dRes_info_c::loadResource() {
                     void* bas;
 
                     if (chunk->some_data_offset != 0xFFFFFFFF) {
-                        bas = (void*)(chunk->some_data_offset + (u32)res);
+                        bas = (void*)(chunk->some_data_offset + (uintptr_t)res);
                     } else {
                         bas = NULL;
                     }

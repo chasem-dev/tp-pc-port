@@ -15,9 +15,13 @@ public:
     JGadget_outMessage(MessageFunc fn, const char* file, int line);
     ~JGadget_outMessage();
 
+#ifndef TARGET_PC  /* On PC, int == s32 (int32_t), so this would be a redeclaration */
     JGadget_outMessage& operator<<(int param_1) { return *this << (s32)param_1; }
+#endif
     JGadget_outMessage& operator<<(u16);
+#ifndef TARGET_PC  /* On PC, uint == u32 (both unsigned int), so this would be a redeclaration */
     JGadget_outMessage& operator<<(uint);
+#endif
     JGadget_outMessage& operator<<(u8 param_1) { return *this << (char)param_1; }
     JGadget_outMessage& operator<<(const char* str);
     JGadget_outMessage& operator<<(char);

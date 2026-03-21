@@ -944,8 +944,16 @@ int cDyl_LinkASync(s16 i_ProfName) {
     return cPhs_COMPLEATE_e;
 }
 
+#ifdef TARGET_PC
+extern "C" void ModuleProlog();
+#endif
+
 static int cDyl_InitCallback(void* param_0) {
     JUT_ASSERT(335, !cDyl_Initialized);
+
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] cDyl_InitCallback: start\n");
+#endif
 
     #if PLATFORM_GCN
     JKRHeap* parentHeap = mDoExt_getArchiveHeap();
@@ -953,9 +961,16 @@ static int cDyl_InitCallback(void* param_0) {
     JKRHeap* parentHeap = DynamicModuleControlBase::getHeap();
     #endif
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] cDyl_InitCallback: mounting DVD drive...\n");
+#endif
     JKRFileCache* loader = JKRMountDvdDrive("/", parentHeap, NULL);
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] cDyl_InitCallback: DynamicModuleControl::initialize...\n");
+#endif
     DynamicModuleControl::initialize();
 
+#ifndef TARGET_PC
     #if PLATFORM_GCN
     void* strTbl = JKRGetResource("/dvd/str/Final/Release/frameworkF.str");
     #elif PLATFORM_WII
@@ -963,16 +978,34 @@ static int cDyl_InitCallback(void* param_0) {
     #else
     void* strTbl = JKRGetResource("/dvd/str/Final/Release/frameworkF.str");
     #endif
-
     JKRDetachResource(strTbl, loader);
     JKRUnmountDvdDrive(loader);
     OSSetStringTable(strTbl);
+#else
+    /* On PC, RELs are statically linked — string table not needed.
+     * Skip JKRGetResource which crashes due to unswapped RARC sub-data. */
+    fprintf(stderr, "[PC] cDyl_InitCallback: skipping frameworkF.str (static link)\n");
+    JKRUnmountDvdDrive(loader);
+#endif
 
     DynamicModuleControl dmc("f_pc_profile_lst");
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] cDyl_InitCallback: linking f_pc_profile_lst...\n");
+    /* On PC, REL prolog isn't called by do_link (no REL to link).
+     * Call ModuleProlog manually to register the profile list. */
+    ModuleProlog();
+    fprintf(stderr, "[PC] cDyl_InitCallback: ModuleProlog called, profiles registered\n");
+#endif
     dmc.link();
     cDyl_Initialized = true;
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] cDyl_InitCallback: creating logo scene...\n");
+#endif
     fopScnM_CreateReq(fpcNm_LOGO_SCENE_e, 0x7FFF, 0, 0);
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] cDyl_InitCallback: done!\n");
+#endif
     return 1;
 }
 

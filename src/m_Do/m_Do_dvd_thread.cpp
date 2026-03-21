@@ -28,18 +28,16 @@ mDoDvdThdStack mDoDvdThd::l_threadStack;
 
 mDoDvdThd_param_c mDoDvdThd::l_param;
 
+bool mDoDvdThd::SyncWidthSound;
+u8 mDoDvdThd::DVDLogoMode;
 #if DEBUG
 u8 mDoDvdThd::verbose;
-u8 mDoDvdThd::DVDLogoMode;
-bool mDoDvdThd::SyncWidthSound;
 u8 mDoDvdThd::Report_DVDRead;
 OSBootInfo* mDoDvdHack::BootInfo;
 mDoDvdHack::FSTEntry* mDoDvdHack::FstStart;
 const char* mDoDvdHack::FstStringStart;
 u32 mDoDvdHack::MaxEntryNum;
 mDoDvdHack::Manager mDoDvdHack::Manager::sManager;
-#else
-bool mDoDvdThd::SyncWidthSound;
 #endif
 
 u8 sDefaultDirection;

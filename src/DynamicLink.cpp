@@ -148,7 +148,13 @@ static const char* baseString = "Base";
 
 JKRArchive* DynamicModuleControl::mountCallback(void* param_0) {
     JKRExpHeap* heap = mDoExt_getArchiveHeap();
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] mountCallback: heap=%p, mounting FileCache...\n", (void*)heap);
+#endif
     sFileCache = JKRFileCache::mount("/rel/Final/Release", heap, NULL);
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] mountCallback: FileCache=%p, mounting RELS.arc...\n", (void*)sFileCache);
+#endif
     sArchive = JKRArchive::mount("RELS.arc", JKRArchive::MOUNT_COMP, heap,
                                  JKRArchive::MOUNT_DIRECTION_HEAD);
     if (sArchive == NULL) {
@@ -186,6 +192,11 @@ bool DynamicModuleControl::do_load() {
     if (mModule != NULL) {
         return true;
     }
+#ifdef TARGET_PC
+    /* On PC, all actor code is statically linked into the executable.
+     * No REL files need to be loaded from disc. */
+    return true;
+#endif
     JKRExpHeap* heap = mDoExt_getArchiveHeap();
     s32 i = 0;
     while (true) {
@@ -321,20 +332,27 @@ void DynamicModuleControl::dump2() {
 }
 
 BOOL DynamicModuleControl::do_link() {
+#ifdef TARGET_PC
+    /* On PC, all code is statically linked. No REL linking needed.
+     * Prologue functions (actor profile registration) are already in the binary. */
+    return TRUE;
+#endif
     OSGetTime();
     if (mModule == NULL) {
         do_load();
     }
     if (mModule != NULL) {
+#ifndef TARGET_PC
         ASSERT(mModule->info.sectionInfoOffset < 0x80000000);
         ASSERT((u32)mModule + mModule->fixSize < 0x82000000);
+#endif
         OSGetTime();
         OSGetTime();
         if (mModule->info.version >= 3) {
             u32 fixSizePtr;
             u32 fixSize = mModule->fixSize;
             u32 fixSize2 = (fixSize + 0x1f) & ~0x1f;
-            fixSizePtr = (u32)mModule + fixSize2;
+            fixSizePtr = (u32)(uintptr_t)mModule + fixSize2;
             s32 size = JKRGetMemBlockSize(NULL, mModule);
             if (size < 0) {
                 void* bss = JKRAlloc(mModule->bssSize, 0x20);
@@ -417,6 +435,9 @@ error:
 }
 
 bool DynamicModuleControl::do_unlink() {
+#ifdef TARGET_PC
+    return true;
+#endif
     OSTime time1 = OSGetTime();
     ((void (*)())mModule->epilog)();
     OSTime time2 = OSGetTime();
@@ -453,6 +474,7 @@ const char* DynamicModuleControl::getModuleTypeString() const {
     return strings[mResourceType & 3];
 }
 
+#ifndef TARGET_PC
 extern "C" void ModuleProlog() {
     /* empty function */
 }
@@ -460,17 +482,23 @@ extern "C" void ModuleProlog() {
 extern "C" void ModuleEpilog() {
     /* empty function */
 }
+#endif
 
 extern "C" void ModuleUnresolved() {
     // "\nError: Unlinked function was called.\n"
     OSReport_Error("\nError: リンクされていない関数が呼び出されました.\n");
     OSReport_Error("Address:      Back Chain    LR Save\n");
+#ifdef TARGET_PC
+    /* Stack walk not supported on PC */
+    (void)0;
+#else
     u32 i = 0;
     u32* stackPtr = (u32*)OSGetStackPointer();
     while ((stackPtr != NULL) && ((u32)stackPtr != 0xFFFFFFFF) && (i++ < 0x10)) {
         OSReport_Error("0x%08x:   0x%08x    0x%08x\n", stackPtr, *stackPtr, *(stackPtr + 1));
         stackPtr = (u32*)*stackPtr;
     }
+#endif
     OSReport_Error("\n");
 }
 

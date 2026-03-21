@@ -20,7 +20,7 @@ public:
 };
 
 #if DEBUG
-daTagChgRestart_HIO_c l_HIO;
+static daTagChgRestart_HIO_c l_HIO;
 
 daTagChgRestart_HIO_c::daTagChgRestart_HIO_c() {
     show_range = FALSE;

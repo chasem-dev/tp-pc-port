@@ -13,8 +13,40 @@ JUTTexture::~JUTTexture() {
     }
 }
 
+#ifdef TARGET_PC
+static u16 swap16(u16 v) { return (v >> 8) | ((v & 0xFF) << 8); }
+static u32 swap32_ptr(void* p) { u8* b = (u8*)p; return ((u32)b[0]<<24)|((u32)b[1]<<16)|((u32)b[2]<<8)|b[3]; }
+
+static void pc_bswap_ResTIMG(ResTIMG* t) {
+    t->width = swap16(t->width);
+    t->height = swap16(t->height);
+    t->numColors = swap16(t->numColors);
+    t->LODBias = (s16)swap16((u16)t->LODBias);
+    t->paletteOffset = swap32_ptr(&t->paletteOffset);
+    t->imageOffset = swap32_ptr(&t->imageOffset);
+}
+static bool pc_is_ResTIMG_swapped(ResTIMG const* t) {
+    /* Heuristic: if width > 2048, it's probably not swapped yet */
+    return t->width <= 2048 && t->height <= 2048;
+}
+#endif
+
 void JUTTexture::storeTIMG(ResTIMG const* param_0, u8 param_1) {
     if (param_0 && param_1 < 0x10) {
+#ifdef TARGET_PC
+        /* Byte-swap BTI header from big-endian disc data (only once) */
+        {
+            const u8* raw = (const u8*)param_0;
+            fprintf(stderr, "[PC] storeTIMG: raw fmt=%d w=%d h=%d imgOff=0x%08x raw[2..5]=%02x%02x%02x%02x\n",
+                    raw[0], param_0->width, param_0->height, param_0->imageOffset,
+                    raw[2], raw[3], raw[4], raw[5]);
+        }
+        if (!pc_is_ResTIMG_swapped(param_0)) {
+            pc_bswap_ResTIMG(const_cast<ResTIMG*>(param_0));
+            fprintf(stderr, "[PC] storeTIMG: AFTER swap w=%d h=%d imgOff=0x%08x\n",
+                    param_0->width, param_0->height, param_0->imageOffset);
+        }
+#endif
         mTexInfo = param_0;
         mTexData = (void*)((intptr_t)mTexInfo + mTexInfo->imageOffset);
 
@@ -74,6 +106,11 @@ void JUTTexture::storeTIMG(ResTIMG const* param_0, JUTPalette* param_1, GXTlut p
     if (param_0 == NULL) {
         return;
     }
+#ifdef TARGET_PC
+    if (!pc_is_ResTIMG_swapped(param_0)) {
+        pc_bswap_ResTIMG(const_cast<ResTIMG*>(param_0));
+    }
+#endif
     mTexInfo = param_0;
     mTexData = ((u8*)mTexInfo) + mTexInfo->imageOffset;
     if (mTexInfo->imageOffset == 0) {

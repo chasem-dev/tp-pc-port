@@ -89,6 +89,21 @@ bool JKRCompArchive::open(s32 entryNum) {
         JKRDvdToMainRam(entryNum, (u8 *)arcHeader, EXPAND_SWITCH_UNKNOWN1, 32, NULL, JKRDvdRipper::ALLOC_DIRECTION_FORWARD, 0, &mCompression, NULL);
         DCInvalidateRange(arcHeader, 32);
 
+#ifdef TARGET_PC
+        /* RARC headers are big-endian on disc — byte-swap all u32 fields */
+        arcHeader->signature = read_big_endian_u32(&arcHeader->signature);
+        arcHeader->file_length = read_big_endian_u32(&arcHeader->file_length);
+        arcHeader->header_length = read_big_endian_u32(&arcHeader->header_length);
+        arcHeader->file_data_offset = read_big_endian_u32(&arcHeader->file_data_offset);
+        arcHeader->file_data_length = read_big_endian_u32(&arcHeader->file_data_length);
+        arcHeader->field_0x14 = read_big_endian_u32(&arcHeader->field_0x14);
+        arcHeader->field_0x18 = read_big_endian_u32(&arcHeader->field_0x18);
+        arcHeader->field_0x1c = read_big_endian_u32(&arcHeader->field_0x1c);
+        fprintf(stderr, "[PC] JKRCompArchive::open: sig=%08x len=%u hdrlen=%u dataoff=%u mempart=%u arampart=%u compression=%d\n",
+                arcHeader->signature, arcHeader->file_length, arcHeader->header_length,
+                arcHeader->file_data_offset, arcHeader->field_0x14, arcHeader->field_0x18, mCompression);
+#endif
+
         mSizeOfMemPart = arcHeader->field_0x14;
         mSizeOfAramPart = arcHeader->field_0x18;
         JUT_ASSERT(352, ( mSizeOfMemPart & 0x1f ) == 0);
@@ -99,30 +114,85 @@ bool JKRCompArchive::open(s32 entryNum) {
         case COMPRESSION_NONE:
         case COMPRESSION_YAZ0:
             alignment = mMountDirection == 1 ? 32 : -32;
+#ifdef TARGET_PC
+            fprintf(stderr, "[PC] CompArchive: alloc %u bytes for ArcInfo...\n", arcHeader->file_data_offset + mSizeOfMemPart);
+#endif
             mArcInfoBlock = (SArcDataInfo *)JKRAllocFromHeap(mHeap, arcHeader->file_data_offset + mSizeOfMemPart, alignment);
             if (mArcInfoBlock == NULL) {
+#ifdef TARGET_PC
+                fprintf(stderr, "[PC] CompArchive: ArcInfo alloc FAILED\n");
+#endif
                 mMountMode = 0;
             }
             else
             {
+#ifdef TARGET_PC
+                fprintf(stderr, "[PC] CompArchive: ArcInfo=%p, loading from DVD...\n", (void*)mArcInfoBlock);
+#endif
                 JKRDvdToMainRam(entryNum, (u8 *)mArcInfoBlock, EXPAND_SWITCH_UNKNOWN1, (uintptr_t)arcHeader->file_data_offset + mSizeOfMemPart,
                                 NULL, JKRDvdRipper::ALLOC_DIRECTION_FORWARD, 0x20, NULL, NULL);
                 DCInvalidateRange(mArcInfoBlock, (uintptr_t)arcHeader->file_data_offset + mSizeOfMemPart);
                 field_0x64 = (uintptr_t)mArcInfoBlock + arcHeader->file_data_offset;
+#ifdef TARGET_PC
+                fprintf(stderr, "[PC] CompArchive: DVD load done, aramPart=%u\n", mSizeOfAramPart);
+#endif
 
                 if (mSizeOfAramPart != 0) {
+#ifdef TARGET_PC
+                    /* On PC, skip ARAM entirely — ARAM DMA (JKRDvdToAram) hangs
+                     * because ARStartDMA is not implemented. Resources in the ARAM
+                     * portion won't be available until ARAM is properly emulated. */
+                    fprintf(stderr, "[PC] CompArchive: skipping ARAM part (%u bytes)\n", mSizeOfAramPart);
+#else
                     mAramPart = (JKRAramBlock*)JKRAllocFromAram(mSizeOfAramPart, JKRAramHeap::HEAD);
                     if(mAramPart == NULL) {
                         mMountMode = 0;
                         break;
                     }
-
                     JKRDvdToAram(entryNum, mAramPart->getAddress(), EXPAND_SWITCH_UNKNOWN1, arcHeader->header_length + arcHeader->file_data_offset + mSizeOfMemPart, 0, NULL);
+#endif
                 }
 
+#ifdef TARGET_PC
+                /* Byte-swap SArcDataInfo header */
+                mArcInfoBlock->num_nodes = read_big_endian_u32(&mArcInfoBlock->num_nodes);
+                mArcInfoBlock->node_offset = read_big_endian_u32(&mArcInfoBlock->node_offset);
+                mArcInfoBlock->num_file_entries = read_big_endian_u32(&mArcInfoBlock->num_file_entries);
+                mArcInfoBlock->file_entry_offset = read_big_endian_u32(&mArcInfoBlock->file_entry_offset);
+                mArcInfoBlock->string_table_length = read_big_endian_u32(&mArcInfoBlock->string_table_length);
+                mArcInfoBlock->string_table_offset = read_big_endian_u32(&mArcInfoBlock->string_table_offset);
+                mArcInfoBlock->next_free_file_id = read_big_endian_u16(&mArcInfoBlock->next_free_file_id);
+#endif
                 mNodes = (SDIDirEntry*)((uintptr_t)mArcInfoBlock + mArcInfoBlock->node_offset);
-                mFiles = (SDIFileEntry *)((uintptr_t)mArcInfoBlock + mArcInfoBlock->file_entry_offset);
                 mStringTable = (char*)((uintptr_t)mArcInfoBlock + mArcInfoBlock->string_table_offset);
+#ifdef TARGET_PC
+                /* Byte-swap directory nodes */
+                for (u32 i = 0; i < mArcInfoBlock->num_nodes; i++) {
+                    mNodes[i].type = read_big_endian_u32(&mNodes[i].type);
+                    mNodes[i].name_offset = read_big_endian_u32(&mNodes[i].name_offset);
+                    mNodes[i].field_0x8 = read_big_endian_u16(&mNodes[i].field_0x8);
+                    mNodes[i].num_entries = read_big_endian_u16(&mNodes[i].num_entries);
+                    mNodes[i].first_file_index = read_big_endian_u32(&mNodes[i].first_file_index);
+                }
+                /* Convert 20-byte disc file entries to 24-byte memory entries */
+                {
+                    struct SDIFileEntryDisc { u16 file_id; u16 name_hash; u32 type_flags_and_name_offset; u32 data_offset; u32 data_size; u32 pad; };
+                    SDIFileEntryDisc* disc_files = (SDIFileEntryDisc*)((uintptr_t)mArcInfoBlock + mArcInfoBlock->file_entry_offset);
+                    u32 num_entries = mArcInfoBlock->num_file_entries;
+                    SDIFileEntry* new_files = (SDIFileEntry*)malloc(num_entries * sizeof(SDIFileEntry));
+                    for (u32 i = 0; i < num_entries; i++) {
+                        new_files[i].file_id = read_big_endian_u16(&disc_files[i].file_id);
+                        new_files[i].name_hash = read_big_endian_u16(&disc_files[i].name_hash);
+                        new_files[i].type_flags_and_name_offset = read_big_endian_u32(&disc_files[i].type_flags_and_name_offset);
+                        new_files[i].data_offset = read_big_endian_u32(&disc_files[i].data_offset);
+                        new_files[i].data_size = read_big_endian_u32(&disc_files[i].data_size);
+                        new_files[i].data = NULL;
+                    }
+                    mFiles = new_files;
+                }
+#else
+                mFiles = (SDIFileEntry *)((uintptr_t)mArcInfoBlock + mArcInfoBlock->file_entry_offset);
+#endif
                 field_0x6c = arcHeader->header_length + arcHeader->file_data_offset;
             }
             break;

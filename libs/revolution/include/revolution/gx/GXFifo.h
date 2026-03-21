@@ -1,6 +1,11 @@
 #ifndef _REVOLUTION_GX_GXFIFO_H_
 #define _REVOLUTION_GX_GXFIFO_H_
 
+/* Skip if dolphin GX FIFO is already defined (they're compatible) */
+#ifdef _DOLPHIN_GX_GXFIFO_H_
+/* Already defined by dolphin/gx/GXFifo.h */
+#else
+
 #include <revolution/gx/GXEnum.h>
 #include <revolution/os/OSThread.h>
 
@@ -42,5 +47,7 @@ void GXRestoreWriteGatherPipe(void);
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* _DOLPHIN_GX_GXFIFO_H_ */
 
 #endif

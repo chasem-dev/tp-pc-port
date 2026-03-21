@@ -39,6 +39,16 @@
 #include <revolution/sc.h>
 #endif
 
+#ifdef TARGET_PC
+extern "C" {
+    extern int g_pc_running;
+    extern void* g_pc_window;
+    int pc_platform_poll_events(void);
+    void pc_platform_swap_buffers(void);
+    void VIEnableSwap(void);
+}
+#endif
+
 class mDoMain_HIO_c : public mDoHIO_entry_c {
 public:
     void listenPropertyEvent(const JORPropertyEvent*);
@@ -669,6 +679,9 @@ void main01(void) {
 
     // Setup heaps, setup exception manager, set RNG seed, setup DVDError Thread, setup Memory card Thread
     mDoMch_Create();
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] main01: mDoMch_Create done\n");
+#endif
 
     #if DEBUG
     FixedMemoryCheck* local_20 = FixedMemoryCheck::easyCreate(_f_text, intptr_t(_e_text - _f_text));
@@ -677,11 +690,20 @@ void main01(void) {
     FixedMemoryCheck* local_2c = FixedMemoryCheck::easyCreate(_f_rodata, intptr_t(_e_rodata - _f_rodata));
     #endif
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] main01: calling mDoGph_Create...\n");
+#endif
     // setup FrameBuffer and ZBuffer, init display lists
     mDoGph_Create();
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] main01: mDoGph_Create done\n");
+#endif
 
     // Setup control pad
     mDoCPd_c::create();
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] main01: controller pad done\n");
+#endif
 
     RootHeapCheck.setHeap((JKRExpHeap*)JKRGetRootHeap());
     SystemHeapCheck.setHeap((JKRExpHeap*)JKRGetSystemHeap());
@@ -709,8 +731,14 @@ void main01(void) {
                                                   JUTConsole::OUTPUT_NONE);
     console->setPosition(32, 42);
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] main01: calling DVD thread + fapGm_Create...\n");
+#endif
     mDoDvdThd_callback_c::create((mDoDvdThd_callback_func)LOAD_COPYDATE, NULL);
     fapGm_Create(); // init framework
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] main01: fapGm_Create done\n");
+#endif
 
     #if DEBUG
     mDoMain_HIO.entryHIO("メイン");
@@ -718,15 +746,43 @@ void main01(void) {
     g_presetHIO.field_0x4 = mDoHIO_createChild("状況ファイル", &g_presetHIO);
     #endif
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] main01: fopAcM_initManager...\n");
+#endif
     fopAcM_initManager();
     mDisplayHeapSize = 0;
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] main01: cDyl_InitAsync (REL loading)...\n");
+#endif
     cDyl_InitAsync(); // init RELs
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] main01: creating audio heap...\n");
+#endif
 
     g_mDoAud_audioHeap = JKRCreateSolidHeap(audioHeapSize, JKRGetCurrentHeap(), false);
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] main01: audio heap done, entering game loop\n");
+#endif
+
+#ifdef TARGET_PC
+    /* All init complete — enable VIWaitForRetrace to swap buffers.
+     * Must not swap during JFWSystem::init/JUTVideo setup or Metal crashes. */
+    VIEnableSwap();
+    OS_REPORT("[PC] Entering main loop\n");
+#endif
 
     do {
         static u32 frame;
         frame++;
+
+#ifdef TARGET_PC
+        if (frame <= 3)
+            fprintf(stderr, "[PC] frame %u: start\n", frame);
+        if (!pc_platform_poll_events() || !g_pc_running)
+            break;
+        if (frame <= 5 || (frame % 60 == 0))
+            fprintf(stderr, "[PC] frame %u: poll done\n", frame);
+#endif
 
         #if DEBUG
         if (memorycheck_check_frame != 0 && frame % memorycheck_check_frame == 0) {
@@ -742,6 +798,9 @@ void main01(void) {
             mDoMemCd_UpDate();
         }
 
+#ifdef TARGET_PC
+        if (frame <= 5) fprintf(stderr, "[PC] frame %u: mDoCPd_c::read\n", frame);
+#endif
         mDoCPd_c::read();   // read controller input
 
         #if DEBUG
@@ -750,6 +809,9 @@ void main01(void) {
         }
         #endif
 
+#ifdef TARGET_PC
+        if (frame <= 5) fprintf(stderr, "[PC] frame %u: fapGm_Execute\n", frame);
+#endif
         fapGm_Execute();    // handle game execution
 
         #if DEBUG
@@ -763,14 +825,27 @@ void main01(void) {
         fapGm_HIO_c::startCpuTimer();
         #endif
 
+#ifdef TARGET_PC
+        /* Swap buffers after game processing */
+        pc_platform_swap_buffers();
+
+        /* Audio system not yet ported — skip to prevent JAudio2 crashes */
+#else
         mDoAud_Execute();   // handle audio execution
+#endif
 
         #if DEBUG
         fapGm_HIO_c::printCpuTimer("");
         fapGm_HIO_c::stopCpuTimer("オーディオ");
         #endif
 
+#ifdef TARGET_PC
+        if (frame <= 5) fprintf(stderr, "[PC] frame %u: debug\n", frame);
+#endif
         debug();            // run debugger
+#ifdef TARGET_PC
+        if (frame <= 5 || frame % 30 == 0) fprintf(stderr, "[PC] frame %u done\n", frame);
+#endif
     } while (true);
 }
 
@@ -926,12 +1001,19 @@ void main(int argc, const char* argv[]) {
         }
     }
 
+#ifdef TARGET_PC
+    /* On PC, all code is statically linked and threading is single-threaded.
+     * Call main01() directly instead of spawning a thread. */
+    OS_REPORT("[PC] Entering main loop directly (single-threaded)\n");
+    main01();
+#else
     OS_REPORT("メインスレッドを作成します\n");
     OSCreateThread(&mainThread, (void*(*)(void*))main01, 0, stack + sizeof(mainThreadStack), sizeof(mainThreadStack), OSGetThreadPriority(current_thread), 0);
     OSResumeThread(&mainThread);
     OS_REPORT("メインスレッドを起動しました <%x>\n", &mainThread);
     OSSetThreadPriority(current_thread, 0x1F);
     OSSuspendThread(current_thread);
+#endif
 }
 
 bool JKRHeap::dump_sort() {
@@ -1008,6 +1090,7 @@ template<>
 JASDefaultBankTable* JASGlobalInstance<JASDefaultBankTable>::sInstance JAS_GLOBAL_INSTANCE_INIT;
 
 #ifndef __MWERKS__
+#include "JSystem/JAudio2/JAUSectionHeap.h"
 template<>
 JAUSectionHeap* JASGlobalInstance<JAUSectionHeap>::sInstance JAS_GLOBAL_INSTANCE_INIT;
 #endif

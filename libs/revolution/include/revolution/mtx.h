@@ -1,6 +1,16 @@
 #ifndef _REVOLUTION_MTX_H_
 #define _REVOLUTION_MTX_H_
 
+#ifdef TARGET_PC
+/* On PC, redirect to dolphin mtx.h to avoid struct redefinition conflicts */
+#include <dolphin/mtx.h>
+#else
+
+/* Skip if dolphin mtx types are already defined (they're compatible) */
+#ifdef _DOLPHIN_MTX_H_
+/* Already defined by dolphin/mtx.h */
+#else
+
 #include <revolution/types.h>
 
 #ifdef __cplusplus
@@ -384,4 +394,7 @@ void C_QUATCompA(const Quaternion* qprev, const Quaternion* q, const Quaternion*
 }
 #endif
 
-#endif
+#endif /* _DOLPHIN_MTX_H_ */
+#endif /* !TARGET_PC */
+
+#endif /* _REVOLUTION_MTX_H_ */

@@ -21,7 +21,7 @@
 #include <types.h>
 #include <cstring>
 
-daNpc_Maro_c::actionFunc dummy_lit_3931() {
+static daNpc_Maro_c::actionFunc dummy_lit_3931() {
     return &daNpc_Maro_c::choccai;
 }
 

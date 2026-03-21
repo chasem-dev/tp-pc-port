@@ -42,15 +42,31 @@ BOOL fpcM_IsCreating(fpc_ProcID i_id) {
 }
 
 void fpcM_Management(fpcM_ManagementFunc i_preExecuteFn, fpcM_ManagementFunc i_postExecuteFn) {
+#ifdef TARGET_PC
+    static int s_mgmt_frame = 0;
+    s_mgmt_frame++;
+    if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] fpcM_Management: MtxInit\n");
+#endif
     MtxInit();
+#ifdef TARGET_PC
+    if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] fpcM_Management: peekZdata\n");
+#endif
     if (!fapGm_HIO_c::isCaptureScreen()) {
         dComIfGd_peekZdata();
     }
+#ifdef TARGET_PC
+    if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] fpcM_Management: captureScreen\n");
+#endif
     fapGm_HIO_c::executeCaptureScreen();
 
+#ifdef TARGET_PC
+    if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] fpcM_Management: shutdownErr\n");
+#endif
     if (!dShutdownErrorMsg_c::execute()) {
         static bool l_dvdError = false;
-
+#ifdef TARGET_PC
+        if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] fpcM_Management: dvdErr\n");
+#endif
         if (!dDvdErrorMsg_c::execute()) {
             if (l_dvdError) {
                 dLib_time_c::startTime();
@@ -58,6 +74,9 @@ void fpcM_Management(fpcM_ManagementFunc i_preExecuteFn, fpcM_ManagementFunc i_p
                 l_dvdError = false;
             }
 
+#ifdef TARGET_PC
+            if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] fpcM_Management: cAPIGph_Painter\n");
+#endif
             cAPIGph_Painter();
 
             if (!dPa_control_c::isStatus(1)) {
@@ -66,10 +85,16 @@ void fpcM_Management(fpcM_ManagementFunc i_preExecuteFn, fpcM_ManagementFunc i_p
                 dPa_control_c::offStatus(1);
             }
 
+#ifdef TARGET_PC
+            if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] fpcM_Management: fpcPi_Handler\n");
+#endif
             if (!fpcPi_Handler()) {
                 JUT_ASSERT(353, FALSE);
             }
 
+#ifdef TARGET_PC
+            if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] fpcM_Management: fpcCt_Handler\n");
+#endif
             if (!fpcCt_Handler()) {
                 JUT_ASSERT(357, FALSE);
             }

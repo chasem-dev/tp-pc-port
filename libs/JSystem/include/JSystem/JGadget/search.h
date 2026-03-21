@@ -17,6 +17,14 @@ struct TExpandStride_<s32> {
     static s32 get(s32 n) { return n << 3; }
 };
 
+#ifdef TARGET_PC
+/* On 64-bit, difference_type is long (not int/s32), need specialization */
+template <>
+struct TExpandStride_<long> {
+    static long get(long n) { return n << 3; }
+};
+#endif
+
 struct TPR1IsEqual_string_ {
     TPR1IsEqual_string_(const char* sz) {
         string_ = sz;

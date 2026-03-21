@@ -72,6 +72,14 @@ u16 __OSWirelessPadFixMode AT_ADDRESS(OS_BASE_CACHED | 0x30E0);
 OSThread* __gUnkThread1 AT_ADDRESS(OS_BASE_CACHED | 0x00D8);
 int __gUnknown800030C0[2] AT_ADDRESS(OS_BASE_CACHED | 0x30C0);
 u8 __gUnknown800030E3 AT_ADDRESS(OS_BASE_CACHED | 0x30E3);
+#elif defined(TARGET_PC)
+/* On PC, these are regular extern variables defined in pc_misc.cpp */
+extern u32 __OSPhysicalMemSize;
+extern volatile int __OSTVMode;
+extern u32 __OSSimulatedMemSize;
+extern u32 __OSBusClock;
+extern u32 __OSCoreClock;
+extern volatile u16 __OSDeviceCode;
 #else
 #define __OSBusClock  (*(u32 *)(OS_BASE_CACHED | 0x00F8))
 #define __OSCoreClock (*(u32 *)(OS_BASE_CACHED | 0x00FC))
@@ -223,8 +231,8 @@ extern u8 __OSReport_Warning_disable;
 extern u8 __OSReport_System_disable;
 extern u8 __OSReport_enable;
 
-#define OSRoundUp32B(x)   (((u32)(x) + 32 - 1) & ~(32 - 1))
-#define OSRoundDown32B(x) (((u32)(x)) & ~(32 - 1))
+#define OSRoundUp32B(x)   (((uintptr_t)(x) + 32 - 1) & ~((uintptr_t)(32 - 1)))
+#define OSRoundDown32B(x) (((uintptr_t)(x)) & ~((uintptr_t)(32 - 1)))
 
 void* OSPhysicalToCached(u32 paddr);
 void* OSPhysicalToUncached(u32 paddr);
@@ -233,7 +241,16 @@ u32 OSUncachedToPhysical(void* ucaddr);
 void* OSCachedToUncached(void* caddr);
 void* OSUncachedToCached(void* ucaddr);
 
-#if !DEBUG
+#if defined(TARGET_PC)
+/* On PC there is no physical/cached/uncached distinction.
+ * Identity-map pointers; return uintptr_t where the original returned u32. */
+#define OSPhysicalToCached(paddr)    ((void*)(uintptr_t)(paddr))
+#define OSPhysicalToUncached(paddr)  ((void*)(uintptr_t)(paddr))
+#define OSCachedToPhysical(caddr)    ((u32)(uintptr_t)(caddr))
+#define OSUncachedToPhysical(ucaddr) ((u32)(uintptr_t)(ucaddr))
+#define OSCachedToUncached(caddr)    ((void*)(caddr))
+#define OSUncachedToCached(ucaddr)   ((void*)(ucaddr))
+#elif !DEBUG
 #define OSPhysicalToCached(paddr)    ((void*) ((u32)(OS_BASE_CACHED   + (u32)(paddr))))
 #define OSPhysicalToUncached(paddr)  ((void*) ((u32)(OS_BASE_UNCACHED + (u32)(paddr))))
 #define OSCachedToPhysical(caddr)    ((u32)   ((u32)(caddr)  - OS_BASE_CACHED))

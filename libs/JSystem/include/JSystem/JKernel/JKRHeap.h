@@ -190,7 +190,11 @@ public:
     static JKRHeap* sRootHeap2;
 
     static JKRHeap* sSystemHeap;
+#ifdef TARGET_PC
+    static thread_local JKRHeap* sCurrentHeap;
+#else
     static JKRHeap* sCurrentHeap;
+#endif
 
     static JKRErrorHandler mErrorHandler;
 };

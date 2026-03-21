@@ -20,7 +20,7 @@ public:
     /* 0x06 */ u8 field_0x6;
 };
 
-daObjSmgDoor_HIO_c l_HIO;
+static daObjSmgDoor_HIO_c l_HIO;
 
 daObjSmgDoor_HIO_c::daObjSmgDoor_HIO_c() {
     field_0x6 = 0;

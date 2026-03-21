@@ -21,7 +21,7 @@ public:
 };
 
 #if DEBUG
-daTagRestart_HIO_c l_HIO;
+static daTagRestart_HIO_c l_HIO;
 
 daTagRestart_HIO_c::daTagRestart_HIO_c() {
     show_range = FALSE;

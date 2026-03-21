@@ -1629,7 +1629,7 @@ JPABaseEmitter* dPa_control_c::setPoly(u16 param_0, cBgS_PolyInfo& param_1, cXyz
                         param_7, param_8, &a_Stack_10, &a_Stack_14, param_9, local_c);
 }
 
-void dummy3() {
+static void dummy3() {
     ((dPa_control_c*)NULL)->levelExecute(0);
 }
 

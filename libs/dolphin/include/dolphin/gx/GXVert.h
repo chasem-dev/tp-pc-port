@@ -8,6 +8,74 @@
 extern "C" {
 #endif
 
+#ifdef TARGET_PC
+/* On PC, all vertex submission goes through our GX backend functions.
+ * No hardware FIFO - these are implemented in pc_gx.cpp. */
+
+/* GXCmd */
+void GXCmd1u8(const u8 x);
+void GXCmd1u16(const u16 x);
+void GXCmd1u32(const u32 x);
+
+/* GXParam */
+void GXParam1u8(const u8 x);
+void GXParam1u16(const u16 x);
+void GXParam1u32(const u32 x);
+void GXParam1s8(const s8 x);
+void GXParam1s16(const s16 x);
+void GXParam1s32(const s32 x);
+void GXParam1f32(const f32 x);
+void GXParam3f32(const f32 x, const f32 y, const f32 z);
+void GXParam4f32(const f32 x, const f32 y, const f32 z, const f32 w);
+
+/* GXPosition */
+void GXPosition3f32(const f32 x, const f32 y, const f32 z);
+void GXPosition3u8(const u8 x, const u8 y, const u8 z);
+void GXPosition3s8(const s8 x, const s8 y, const s8 z);
+void GXPosition3u16(const u16 x, const u16 y, const u16 z);
+void GXPosition3s16(const s16 x, const s16 y, const s16 z);
+void GXPosition2f32(const f32 x, const f32 y);
+void GXPosition2u8(const u8 x, const u8 y);
+void GXPosition2s8(const s8 x, const s8 y);
+void GXPosition2u16(const u16 x, const u16 y);
+void GXPosition2s16(const s16 x, const s16 y);
+void GXPosition1x16(const u16 x);
+void GXPosition1x8(const u8 x);
+
+/* GXNormal */
+void GXNormal3f32(const f32 x, const f32 y, const f32 z);
+void GXNormal3s16(const s16 x, const s16 y, const s16 z);
+void GXNormal3s8(const s8 x, const s8 y, const s8 z);
+void GXNormal1x16(const u16 x);
+void GXNormal1x8(const u8 x);
+
+/* GXColor */
+void GXColor4u8(const u8 x, const u8 y, const u8 z, const u8 w);
+void GXColor1u32(const u32 x);
+void GXColor3u8(const u8 x, const u8 y, const u8 z);
+void GXColor1u16(const u16 x);
+void GXColor1x16(const u16 x);
+void GXColor1x8(const u8 x);
+
+/* GXTexCoord */
+void GXTexCoord2f32(const f32 x, const f32 y);
+void GXTexCoord2s16(const s16 x, const s16 y);
+void GXTexCoord2u16(const u16 x, const u16 y);
+void GXTexCoord2s8(const s8 x, const s8 y);
+void GXTexCoord2u8(const u8 x, const u8 y);
+void GXTexCoord1f32(const f32 x);
+void GXTexCoord1s16(const s16 x);
+void GXTexCoord1u16(const u16 x);
+void GXTexCoord1s8(const s8 x);
+void GXTexCoord1u8(const u8 x);
+void GXTexCoord1x16(const u16 x);
+void GXTexCoord1x8(const u8 x);
+
+/* GXMatrixIndex */
+void GXMatrixIndex1u8(const u8 x);
+
+#else /* !TARGET_PC - original hardware FIFO code below */
+
 #define GXFIFO_ADDR 0xCC008000
 
 typedef union {
@@ -132,6 +200,8 @@ FUNC_1PARAM(GXMatrixIndex, u8)
 #undef FUNC_4PARAM
 #undef FUNC_INDEX8
 #undef FUNC_INDEX16
+
+#endif /* TARGET_PC */
 
 #ifdef __cplusplus
 }

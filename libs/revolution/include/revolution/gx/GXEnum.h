@@ -1,6 +1,11 @@
 #ifndef _REVOLUTION_GX_GXENUM_H_
 #define _REVOLUTION_GX_GXENUM_H_
 
+/* Skip if dolphin GX enums are already defined (they're compatible) */
+#ifdef _DOLPHIN_GX_GXENUM_H_
+/* Already defined by dolphin/gx/GXEnum.h */
+#else
+
 #include <revolution/types.h>
 
 typedef u8 GXBool;
@@ -920,5 +925,7 @@ typedef enum _GXCPRegs {
     GX_CP_REG_ARRAYBASE = 0xA0,    // Vertex array start/base
     GX_CP_REG_ARRAYSTRIDE = 0xB0,  // Vertex array stride
 } GXCPRegs;
+
+#endif /* _DOLPHIN_GX_GXENUM_H_ */
 
 #endif

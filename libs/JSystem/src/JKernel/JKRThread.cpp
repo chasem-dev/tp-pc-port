@@ -44,8 +44,15 @@ JKRThread::JKRThread(JKRHeap* heap, u32 stack_size, int message_count, int param
 JKRThread::JKRThread(OSThread* thread, int message_count) : mThreadListLink(this) {
     mHeap = NULL;
     mThreadRecord = thread;
+#ifdef TARGET_PC
+    /* On PC, OSThread structs from OSGetCurrentThread() don't have valid
+     * stack pointers. Just zero these out — they're only used for debug. */
+    mStackSize = 0;
+    mStackMemory = NULL;
+#else
     mStackSize = (uintptr_t)thread->stackEnd - (uintptr_t)thread->stackBase;
     mStackMemory = thread->stackBase;
+#endif
 
     setCommon_mesgQueue(JKRGetSystemHeap(), message_count);
 }

@@ -21,7 +21,7 @@
 #include "f_op/f_op_camera_mng.h"
 
 #if DEBUG
-daObjDrop_HIO_c l_HIO;
+static daObjDrop_HIO_c l_HIO;
 #endif
 
 static void* searchParentSub(void* pproc, void* pdata) {

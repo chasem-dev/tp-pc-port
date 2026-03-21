@@ -53,6 +53,10 @@ void mDoDvdErr_ThdCleanup() {
 }
 
 static void mDoDvdErr_Watch(void*) {
+#ifdef TARGET_PC
+    /* No DVD drive to watch on PC — just sleep forever */
+    while (true) { OSSuspendThread(&DvdErr_thread); }
+#else
 #if PLATFORM_GCN
     OSDisableInterrupts();
 #endif
@@ -68,6 +72,7 @@ static void mDoDvdErr_Watch(void*) {
         }
         OSSuspendThread(&DvdErr_thread);
     } while (true);
+#endif
 }
 
 static void AlarmHandler(OSAlarm*, OSContext*) {

@@ -4,6 +4,17 @@
 #include <gx.h>
 #include <gd.h>
 
+#ifdef TARGET_PC
+/* On PC, redirect direct FIFO writes to our GXCmd/GXParam functions */
+#define J3DFifo_WRITE_U8(v)  GXCmd1u8(v)
+#define J3DFifo_WRITE_U16(v) GXCmd1u16(v)
+#define J3DFifo_WRITE_U32(v) GXCmd1u32(v)
+#else
+#define J3DFifo_WRITE_U8(v)  (GXWGFifo.u8 = (v))
+#define J3DFifo_WRITE_U16(v) (GXWGFifo.u16 = (v))
+#define J3DFifo_WRITE_U32(v) (GXWGFifo.u32 = (v))
+#endif
+
 inline void J3DFifoLoadBPCmd(u32 regval) {
     GXCmd1u8(GX_LOAD_BP_REG);
     GXCmd1u32(regval);
@@ -16,15 +27,15 @@ inline void J3DFifoWriteXFCmdHdr(u16 addr, u8 len) {
 }
 
 inline void J3DFifoLoadIndx(u8 cmd, u16 indx, u16 addr) {
-    GXWGFifo.u8 = cmd;
-    GXWGFifo.u16 = indx;
-    GXWGFifo.u16 = addr;
+    J3DFifo_WRITE_U8(cmd);
+    J3DFifo_WRITE_U16(indx);
+    J3DFifo_WRITE_U16(addr);
 }
 
 inline void J3DFifoWriteCPCmd(u8 cmd, u32 param) {
-    GXWGFifo.u8 = GX_LOAD_CP_REG;
-    GXWGFifo.u8 = cmd;
-    GXWGFifo.u32 = param;
+    J3DFifo_WRITE_U8(GX_LOAD_CP_REG);
+    J3DFifo_WRITE_U8(cmd);
+    J3DFifo_WRITE_U32(param);
 }
 
 inline void J3DFifoLoadCPCmd(u8 reg, u32 value) {
@@ -34,9 +45,9 @@ inline void J3DFifoLoadCPCmd(u8 reg, u32 value) {
 }
 
 inline void J3DFifoWriteXFCmd(u16 cmd, u16 len) {
-    GXWGFifo.u8 = GX_LOAD_XF_REG;
-    GXWGFifo.u16 = (len - 1);
-    GXWGFifo.u16 = cmd;
+    J3DFifo_WRITE_U8(GX_LOAD_XF_REG);
+    J3DFifo_WRITE_U16(len - 1);
+    J3DFifo_WRITE_U16(cmd);
 }
 
 inline void J3DFifoLoadXFCmdHdr(u16 addr, u8 len) {

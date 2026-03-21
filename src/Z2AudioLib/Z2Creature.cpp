@@ -627,7 +627,7 @@ Z2SoundHandlePool* Z2CreatureEnemy::startCollisionSE(u32 hitID, u32 mapinfo) {
             Z2GetSeqMgr()->onEnemyDamage();
             break;
         case 0x20:
-        case 0x24:
+        case 0x24: {
             field_0xa3 = 1;
             u8 var1 = Z2Param::ENDING_BLOW_VOL_LOWER_TIME;
             if (hitID == Z2SE_HIT_SWORD || hitID == Z2SE_HIT_SWORD_STAB || hitID == Z2SE_HIT_WOLFBITE) {
@@ -635,6 +635,7 @@ Z2SoundHandlePool* Z2CreatureEnemy::startCollisionSE(u32 hitID, u32 mapinfo) {
             }
             Z2GetSeqMgr()->setBattleLastHit(var1);
             break;
+        }
         case 0x21:
             if (mEnemyID == Z2_ENEMY_HB) {
                 field_0xa3 = 1;

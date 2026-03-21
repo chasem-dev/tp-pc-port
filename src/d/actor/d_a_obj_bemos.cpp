@@ -149,7 +149,7 @@ public:
     /* 0x3E */ u8 check_draw;
 };
 
-daObjBm_HIO_c l_HIO;
+static daObjBm_HIO_c l_HIO;
 
 daObjBm_HIO_c::daObjBm_HIO_c() {
     beam_scale.set(0.5f, 0.5f, 1.0f);

@@ -42,7 +42,7 @@ public:
 };
 
 #if DEBUG
-daObjWStatue_HIO_c l_HIO;
+static daObjWStatue_HIO_c l_HIO;
 
 daObjWStatue_HIO_c::daObjWStatue_HIO_c() {
     mRespawnTimer = 30;

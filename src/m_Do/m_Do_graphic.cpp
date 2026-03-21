@@ -33,6 +33,10 @@
 #include "DynamicLink.h"
 #include <cstring>
 
+#ifdef TARGET_PC
+extern int g_pc_verbose;
+#endif
+
 #if PLATFORM_WII || PLATFORM_SHIELD
 #include <revolution/sc.h>
 #endif
@@ -290,6 +294,13 @@ void mDoGph_gInf_c::create() {
     #endif
 
     JFWDisplay::getManager()->setDrawDoneMethod(JFWDisplay::UNK_METHOD_1);
+#ifdef TARGET_PC
+    /* Use tick-based timing instead of retrace-based.
+     * Retrace-based deadlocks because there's no VI interrupt on PC
+     * to send messages to JUTVideo's message queue.
+     * GC_TIMER_CLOCK / 60 = one frame at 60fps */
+    JFWDisplay::getManager()->setTickRate(OS_TIMER_CLOCK / 60);
+#endif
 
     JUTFader* faderPtr = new JUTFader(0, 0, JUTVideo::getManager()->getRenderMode()->fbWidth,
                                       JUTVideo::getManager()->getRenderMode()->efbHeight,
@@ -1520,31 +1531,60 @@ static void drawItem3D() {
 }
 
 int mDoGph_Painter() {
+#ifdef TARGET_PC
+    static int s_painter_frame = 0;
+    s_painter_frame++;
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: particle_calcMenu\n");
+#endif
     #if DEBUG
     drawHeapMap();
     #endif
 
     dComIfGp_particle_calcMenu();
+#ifdef TARGET_PC
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: setFader/beginRender\n");
+#endif
 
     JFWDisplay::getManager()->setFader(mDoGph_gInf_c::getFader());
     mDoGph_gInf_c::setClearColor(mDoGph_gInf_c::getBackColor());
+#ifdef TARGET_PC
+    /* Minimal beginRender for PC — JFWDisplay::beginRender has GC-specific
+     * XFB/retrace management that crashes. Just clear and proceed. */
+    GXSetCopyClear(mDoGph_gInf_c::getBackColor(), 0xFFFFFF);
+    GXCopyDisp(NULL, 1);
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: glClear done\n");
+#else
     mDoGph_gInf_c::beginRender();
+#endif
 
     #if DEBUG
     fapGm_HIO_c::startCpuTimer();
     #endif
 
+#ifdef TARGET_PC
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: GXSetAlphaUpdate\n");
+#endif
     GXSetAlphaUpdate(GX_DISABLE);
     mDoGph_gInf_c::setBackColor(g_clearColor);
 
+#ifdef TARGET_PC
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: j3dSys.drawInit\n");
+    j3dSys.drawInit();
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: j3dSys.drawInit DONE\n");
+    GXSetDither(GX_ENABLE);
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: J2DOrthoGraph\n");
+#else
     j3dSys.drawInit();
     GXSetDither(GX_ENABLE);
-
+#endif
     J2DOrthoGraph ortho(0.0f, 0.0f, FB_WIDTH, FB_HEIGHT, -1.0f, 1.0f);
     ortho.setOrtho(mDoGph_gInf_c::getMinXF(), mDoGph_gInf_c::getMinYF(),
                    mDoGph_gInf_c::getWidthF(), mDoGph_gInf_c::getHeightF(),
                    -1.0f, 1.0f);
     ortho.setPort();
+#ifdef TARGET_PC
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: setPort done, drawCopy2D...\n");
+#endif
 
     #if DEBUG
     captureScreenSetPort();
@@ -1552,6 +1592,9 @@ int mDoGph_Painter() {
 
     dComIfGp_setCurrentGrafPort(&ortho);
     dComIfGd_drawCopy2D();
+#ifdef TARGET_PC
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: drawCopy2D done, windows...\n");
+#endif
 
     #if DEBUG
     // "↓↓↓↓↓↓↓↓↓↓ CPU time measuring start ↓↓↓↓↓↓↓↓↓↓"
@@ -1561,6 +1604,9 @@ int mDoGph_Painter() {
     fapGm_HIO_c::stopCpuTimer("画面キャプチャー用２Ｄ描画まで（レンダリング）");
     #endif
 
+#ifdef TARGET_PC
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: windowNum=%d\n", dComIfGp_getWindowNum());
+#endif
     if (dComIfGp_getWindowNum() != 0) {
         dDlst_window_c* window_p = dComIfGp_getWindow(0);
         int camera_id = window_p->getCameraID();
@@ -2032,9 +2078,18 @@ int mDoGph_Painter() {
     }
     #endif
 
+#ifdef TARGET_PC
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: post-window: calcWipe\n");
+#endif
     GXSetClipMode(GX_CLIP_ENABLE);
     dDlst_list_c::calcWipe();
+#ifdef TARGET_PC
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: post-window: reinitGX\n");
+#endif
     j3dSys.reinitGX();
+#ifdef TARGET_PC
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: post-window: ortho2\n");
+#endif
 
     ortho.setOrtho(mDoGph_gInf_c::getMinXF(), mDoGph_gInf_c::getMinYF(),
                    mDoGph_gInf_c::getWidthF(), mDoGph_gInf_c::getHeightF(),
@@ -2045,6 +2100,9 @@ int mDoGph_Painter() {
     captureScreenSetPort();
     #endif
 
+#ifdef TARGET_PC
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: 2D draw (2Ddraw=%d)\n", fapGmHIO_get2Ddraw());
+#endif
     if (fapGmHIO_get2Ddraw()) {
         Mtx m4;
         cMtx_copy(j3dSys.getViewMtx(), m4);
@@ -2054,15 +2112,21 @@ int mDoGph_Painter() {
 
         JPADrawInfo draw_info3(m5, 0.0f, FB_HEIGHT, 0.0f, FB_WIDTH);
 
+#ifndef TARGET_PC
         if (!dComIfGp_isPauseFlag()) {
             dComIfGp_particle_draw2Dback(&draw_info3);
         }
-
         dComIfGp_particle_draw2DmenuBack(&draw_info3);
+#endif
         ortho.setPort();
 
         dComIfGd_draw2DOpa();
+#ifdef TARGET_PC
+        if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: draw2DOpa done\n");
+        /* Skip drawItem3D — crashes on uninitialized 3D menu state during logo */
+#else
         drawItem3D();
+#endif
         ortho.setPort();
 
         #if DEBUG
@@ -2072,21 +2136,31 @@ int mDoGph_Painter() {
         dComIfGd_draw2DOpaTop();
         dComIfGd_draw2DXlu();
 
+#ifndef TARGET_PC
         if (!dComIfGp_isPauseFlag()) {
             dComIfGp_particle_draw2Dfore(&draw_info3);
         }
+#endif
 
 #if DEBUG
         j3dSys.setViewMtx(m5);
         dComIfGd_drawListCursor();
 #endif
 
+#ifdef TARGET_PC
+        {
+            const char* stageName = dComIfGp_getStartStageName();
+            if ((stageName && strcmp(stageName, "F_SP127") == 0) || (mDoGph_gInf_c::isFade() & 0x80) != 0) {
+                mDoGph_gInf_c::calcFade();
+            }
+        }
+#else
         if (strcmp(dComIfGp_getStartStageName(), "F_SP127") == 0 || (mDoGph_gInf_c::isFade() & 0x80) != 0)
         {
             mDoGph_gInf_c::calcFade();
         }
-
         dComIfGp_particle_draw2DmenuFore(&draw_info3);
+#endif
         j3dSys.setViewMtx(m4);
     }
 
@@ -2102,7 +2176,14 @@ int mDoGph_Painter() {
     JAWExtSystem::draw();
     #endif
 
+#ifdef TARGET_PC
+    /* Simplified frame end: frame pacing */
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: endRender (frame %d)\n", s_painter_frame);
+    VIWaitForRetrace();
+    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: VIWaitForRetrace done (frame %d)\n", s_painter_frame);
+#else
     mDoGph_gInf_c::endRender();
+#endif
 
     #if WIDESCREEN_SUPPORT
     mDoGph_gInf_c::offWideZoom();

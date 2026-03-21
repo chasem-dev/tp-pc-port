@@ -32,9 +32,15 @@ typedef struct _GXColorS10 {
     s16 r, g, b, a;
 } GXColorS10;
 
+#ifdef TARGET_PC
+typedef struct _GXTexObj {
+    u32 dummy[16]; /* Must be large enough for PCTexObj (64 bytes on 64-bit) */
+} GXTexObj;
+#else
 typedef struct _GXTexObj {
     u32 dummy[8];
 } GXTexObj;
+#endif
 
 typedef struct _GXLightObj {
     u32 dummy[16];

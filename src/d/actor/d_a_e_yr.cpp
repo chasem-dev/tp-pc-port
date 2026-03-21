@@ -1728,7 +1728,7 @@ static void e_yr_su_wait_move(e_yr_class* i_this) {
     }
 }
 
-f32 dummy() {
+static f32 dummy() {
     return -50.0f;
 }
 

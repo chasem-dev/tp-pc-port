@@ -1,6 +1,11 @@
 #ifndef _REVOLUTION_GX_GXMANAGE_H_
 #define _REVOLUTION_GX_GXMANAGE_H_
 
+/* Skip if dolphin GX manage is already defined (they're compatible) */
+#ifdef _DOLPHIN_GX_GXMANAGE_H_
+/* Already defined by dolphin/gx/GXManage.h */
+#else
+
 #include <revolution/gx/GXFifo.h>
 
 #ifdef __cplusplus
@@ -32,5 +37,7 @@ GXDrawDoneCallback GXSetDrawDoneCallback(GXDrawDoneCallback cb);
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* _DOLPHIN_GX_GXMANAGE_H_ */
 
 #endif

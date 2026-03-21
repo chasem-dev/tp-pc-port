@@ -21,7 +21,11 @@ bool JKRHeap::sDefaultFillFlag = true;
 
 JKRHeap* JKRHeap::sSystemHeap;
 
+#ifdef TARGET_PC
+thread_local JKRHeap* JKRHeap::sCurrentHeap;
+#else
 JKRHeap* JKRHeap::sCurrentHeap;
+#endif
 
 JKRHeap* JKRHeap::sRootHeap;
 
@@ -105,6 +109,13 @@ bool JKRHeap::initArena(char** memory, u32* size, int maxHeaps) {
     arenaLo = (void*)ALIGN_NEXT((uintptr_t)arenaLo, 0x20);
     arenaHi = (void*)ALIGN_PREV((uintptr_t)arenaHi, 0x20);
 
+#ifdef TARGET_PC
+    mCodeStart = NULL;
+    mCodeEnd = arenaLo;
+    mUserRamStart = arenaLo;
+    mUserRamEnd = arenaHi;
+    mMemorySize = (uintptr_t)arenaHi - (uintptr_t)arenaLo;
+#else
     OSBootInfo* codeStart = (OSBootInfo*)OSPhysicalToCached(0);
     mCodeStart = codeStart;
     mCodeEnd = arenaLo;
@@ -112,6 +123,7 @@ bool JKRHeap::initArena(char** memory, u32* size, int maxHeaps) {
     mUserRamStart = arenaLo;
     mUserRamEnd = arenaHi;
     mMemorySize = codeStart->memorySize;
+#endif
 
     OSSetArenaLo(arenaHi);
     OSSetArenaHi(arenaHi);
@@ -468,11 +480,24 @@ bool JKRHeap::isSubHeap(JKRHeap* heap) const {
     return false;
 }
 
+#ifdef TARGET_PC
+/* On PC, the global operator new/delete must fall back to malloc/free when
+ * the JKR heap isn't set up yet. System frameworks (CoreFoundation, Cocoa)
+ * call operator new during initialization, before JKRExpHeap::createRoot(). */
+#include <cstdlib>
+#endif
+
 void* operator new(size_t size) {
+#ifdef TARGET_PC
+    if (!JKRHeap::sRootHeap) return malloc(size);
+#endif
     return JKRHeap::alloc(size, 4, NULL);
 }
 
 void* operator new(size_t size, int alignment) {
+#ifdef TARGET_PC
+    if (!JKRHeap::sRootHeap) return malloc(size);
+#endif
     return JKRHeap::alloc(size, alignment, NULL);
 }
 
@@ -481,10 +506,16 @@ void* operator new(size_t size, JKRHeap* heap, int alignment) {
 }
 
 void* operator new[](size_t size) {
+#ifdef TARGET_PC
+    if (!JKRHeap::sRootHeap) return malloc(size);
+#endif
     return JKRHeap::alloc(size, 4, NULL);
 }
 
 void* operator new[](size_t size, int alignment) {
+#ifdef TARGET_PC
+    if (!JKRHeap::sRootHeap) return malloc(size);
+#endif
     return JKRHeap::alloc(size, alignment, NULL);
 }
 
@@ -493,10 +524,24 @@ void* operator new[](size_t size, JKRHeap* heap, int alignment) {
 }
 
 void operator delete(void* ptr) {
+#ifdef TARGET_PC
+    if (!ptr) return;
+    /* If JKR heap isn't set up yet, this came from malloc */
+    if (!JKRHeap::sRootHeap) { free(ptr); return; }
+    /* If the pointer is outside the JKR arena (e.g. Metal/system allocation),
+     * route to standard free. JKRHeap::findFromRoot would traverse the heap
+     * tree looking for it and crash on pointers it never allocated. */
+    if (ptr < JKRHeap::mUserRamStart || ptr >= JKRHeap::mUserRamEnd) { free(ptr); return; }
+#endif
     JKRHeap::free(ptr, NULL);
 }
 
 void operator delete[](void* ptr) {
+#ifdef TARGET_PC
+    if (!ptr) return;
+    if (!JKRHeap::sRootHeap) { free(ptr); return; }
+    if (ptr < JKRHeap::mUserRamStart || ptr >= JKRHeap::mUserRamEnd) { free(ptr); return; }
+#endif
     JKRHeap::free(ptr, NULL);
 }
 

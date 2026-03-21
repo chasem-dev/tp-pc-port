@@ -20,7 +20,7 @@ public:
 };
 
 #if DEBUG
-daTagSpinner_HIO_c l_HIO;
+static daTagSpinner_HIO_c l_HIO;
 
 daTagSpinner_HIO_c::daTagSpinner_HIO_c() {
     enable_debug_display = FALSE;

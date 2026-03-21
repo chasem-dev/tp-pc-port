@@ -31,6 +31,27 @@
 #define DEBUG 0
 #endif
 
+#ifdef TARGET_PC
+#include <stdint.h>
+#include <string.h>
+#include <math.h>
+
+/* DEG_TO_RAD / RAD_TO_DEG: Metrowerks built-ins not available on PC */
+#ifndef DEG_TO_RAD
+#define DEG_TO_RAD(deg) ((deg) * (3.14159265358979323846f / 180.0f))
+#endif
+#ifndef RAD_TO_DEG
+#define RAD_TO_DEG(rad) ((rad) * (180.0f / 3.14159265358979323846f))
+#endif
+
+/* POSIX string comparison functions (Metrowerks uses MSVC names) */
+#ifndef _WIN32
+#define stricmp strcasecmp
+#define strnicmp strncasecmp
+#include <strings.h>
+#endif
+#endif
+
 #define MSL_INLINE inline
 
 #define ARRAY_SIZE(o) (s32)(sizeof(o) / sizeof(o[0]))
@@ -43,8 +64,13 @@
 #define IS_ALIGNED(X, N) (((X) & ((N)-1)) == 0)
 #define IS_NOT_ALIGNED(X, N) (((X) & ((N)-1)) != 0)
 
+#ifdef TARGET_PC
+#define ROUND(n, a) (((uintptr_t)(n) + (a)-1) & ~((uintptr_t)((a)-1)))
+#define TRUNC(n, a) (((uintptr_t)(n)) & ~((uintptr_t)((a)-1)))
+#else
 #define ROUND(n, a) (((u32)(n) + (a)-1) & ~((a)-1))
 #define TRUNC(n, a) (((u32)(n)) & ~((a)-1))
+#endif
 
 // Silence unused parameter warnings.
 // Necessary for debug matches.
@@ -72,7 +98,28 @@
 #define STATIC_ASSERT(...)
 #endif
 
-#ifndef __MWERKS__
+#ifdef TARGET_PC
+/* PC implementations of PPC intrinsics */
+static inline int __cntlzw(unsigned int x) { return x ? __builtin_clz(x) : 32; }
+static inline int __rlwimi(int val, int ins, int shift, int mb, int me) {
+    unsigned int mask = 0;
+    if (mb <= me) {
+        for (int i = mb; i <= me; i++) mask |= (0x80000000u >> i);
+    } else {
+        for (int i = 0; i <= me; i++) mask |= (0x80000000u >> i);
+        for (int i = mb; i <= 31; i++) mask |= (0x80000000u >> i);
+    }
+    unsigned int rotated = ((unsigned int)ins << shift) | ((unsigned int)ins >> (32 - shift));
+    return ((unsigned int)val & ~mask) | (rotated & mask);
+}
+static inline void __dcbf(void* addr, int offset) { (void)addr; (void)offset; }
+static inline void __dcbz(void* addr, int offset) { (void)addr; (void)offset; }
+static inline void __sync(void) {}
+static inline int __abs(int x) { return x < 0 ? -x : x; }
+static inline void* __memcpy(void* dst, const void* src, int n) { return memcpy(dst, src, n); }
+
+/* FP status register stubs - defined in pc_misc.cpp */
+#elif !defined(__MWERKS__)
 // Silence clangd errors about MWCC PPC intrinsics by declaring them here.
 extern int __cntlzw(unsigned int);
 extern int __rlwimi(int, int, int, int, int);
@@ -87,7 +134,11 @@ void* __memcpy(void*, const void*, int);
 
 #define SQUARE(x) ((x) * (x))
 
+#ifdef TARGET_PC
+#define POINTER_ADD_TYPE(type_, ptr_, offset_) ((type_)((uintptr_t)(ptr_) + (uintptr_t)(offset_)))
+#else
 #define POINTER_ADD_TYPE(type_, ptr_, offset_) ((type_)((unsigned long)(ptr_) + (unsigned long)(offset_)))
+#endif
 #define POINTER_ADD(ptr_, offset_) POINTER_ADD_TYPE(__typeof__(ptr_), ptr_, offset_)
 
 // floating-point constants

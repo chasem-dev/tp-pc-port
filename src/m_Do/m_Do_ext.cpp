@@ -5,7 +5,10 @@
 
 #include "d/dolzel.h" // IWYU pragma: keep
 
+#include "m_Do/m_Do_mtx.h"
 #include <gf/GFPixel.h>
+
+u8 g_printOtherHeapDebug;
 #include <gx.h>
 #include "JSystem/J3DGraphAnimator/J3DMaterialAnm.h"
 #include "JSystem/J3DGraphBase/J3DDrawBuffer.h"
@@ -2684,9 +2687,9 @@ void mDoExt_3DlineMat1_c::draw() {
     mDoExt_3Dline_c* lines = mpLines;
     u16 vert_num = field_0x34 << 1;
     for (s32 i = 0; i < mNumLines; i++) {
-        GXSetArray(GX_VA_POS, ((mDoExt_3Dline_c*)((s32)lines + (mIsDrawn << 2)))->field_0x8, 0xC);
-        GXSetArray(GX_VA_NRM, ((mDoExt_3Dline_c*)((s32)lines + (mIsDrawn << 2)))->field_0x10, 0x3);
-        GXSetArray(GX_VA_TEX0, ((mDoExt_3Dline_c*)((s32)lines + (mIsDrawn << 2)))->field_0x18, 0x8);
+        GXSetArray(GX_VA_POS, ((mDoExt_3Dline_c*)((uintptr_t)lines + (mIsDrawn << 2)))->field_0x8, 0xC);
+        GXSetArray(GX_VA_NRM, ((mDoExt_3Dline_c*)((uintptr_t)lines + (mIsDrawn << 2)))->field_0x10, 0x3);
+        GXSetArray(GX_VA_TEX0, ((mDoExt_3Dline_c*)((uintptr_t)lines + (mIsDrawn << 2)))->field_0x18, 0x8);
         GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, vert_num);
 
         u16 j = 0;

@@ -1,6 +1,11 @@
 #ifndef _REVOLUTION_VITYPES_H_
 #define _REVOLUTION_VITYPES_H_
 
+/* Skip if dolphin VI types are already defined (they're compatible) */
+#ifdef _DOLPHIN_VITYPES_H_
+/* Already defined by dolphin/vi/vitypes.h */
+#else
+
 #include <revolution/types.h>
 
 #define VI_TVMODE(format, interlace)  (((format) << 2) + (interlace))
@@ -134,5 +139,7 @@ typedef struct VIGammaObj {
 typedef struct VIMacroVisionObj {
     u8 m[26];
 } VIMacroVisionObj;
+
+#endif /* _DOLPHIN_VITYPES_H_ */
 
 #endif

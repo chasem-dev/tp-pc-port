@@ -24,7 +24,7 @@ public:
 static char const l_arcName[] = "Hfence";
 
 #if DEBUG
-daTagHjump_HIO_c l_HIO;
+static daTagHjump_HIO_c l_HIO;
 
 daTagHjump_HIO_c::daTagHjump_HIO_c() {
     height = 350.0f;

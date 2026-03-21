@@ -26,7 +26,7 @@ void JASHeap::initRootHeap(void* param_0, u32 param_1) {
     JASMutexLock lock(&mMutex);
     mBase = (u8*)OSRoundUp32B(param_0);
     field_0x40 = NULL;
-    mSize = param_1 - (u32(mBase) - u32(param_0));
+    mSize = param_1 - (uintptr_t(mBase) - uintptr_t(param_0));
 }
 
 bool JASHeap::alloc(JASHeap* mother, u32 param_1) {
@@ -56,7 +56,7 @@ bool JASHeap::alloc(JASHeap* mother, u32 param_1) {
         if (r29 >= mother->mBase + local_2c) {
             break;
         }
-        u32 local_3c = u32(it->mBase) - u32(r29);
+        u32 local_3c = uintptr_t(it->mBase) - uintptr_t(r29);
         if (local_3c >= param_1 && local_3c < r27) {
             local_30 = *it;
             local_34 = r29;
@@ -289,7 +289,7 @@ void JASGenericMemPool::free(void* ptr, u32 param_1) {
     freeMemCount++;
 }
 
-uintptr_t JASKernel::sAramBase;
+u32 JASKernel::sAramBase;
 
 JKRHeap* JASKernel::sSystemHeap;
 
@@ -314,7 +314,7 @@ JASMemChunkPool<1024, JASThreadingModel::ObjectLevelLockable>* JASKernel::getCom
 
 JASHeap JASKernel::audioAramHeap;
 
-void JASKernel::setupAramHeap(uintptr_t param_0, u32 param_1) {
+void JASKernel::setupAramHeap(u32 param_0, u32 param_1) {
 #if !PLATFORM_GCN
     OSReport("setupAramHeap %x, %x, %x\n", param_0, ARGetBaseAddress(), param_1);
     param_0 = ARGetBaseAddress();

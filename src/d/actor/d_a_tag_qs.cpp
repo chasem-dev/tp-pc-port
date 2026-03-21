@@ -35,7 +35,7 @@ public:
 };
 
 #if DEBUG
-daObjTagQs_HIO_c l_HIO;
+static daObjTagQs_HIO_c l_HIO;
 #endif
 
 #define TAG_QS_DEF_POWER_OUTSIDE_RADIUS 4.0f

@@ -2604,7 +2604,7 @@ bool daKago_c::executeFirstDemo() {
         }
 
         break;
-    case 3:
+    case 3: {
         dComIfGp_getEvent()->setSkipProc(this, DemoSkipCallBack, 3);
 
         setMidnaTagPos();
@@ -2624,6 +2624,7 @@ bool daKago_c::executeFirstDemo() {
         }
 
         break;
+    }
     case 4:
         dComIfGp_getEvent()->setSkipProc(this, DemoSkipCallBack, 2);
 

@@ -22,7 +22,7 @@ public:
 };
 
 #if DEBUG
-daTagStatue_HIO_c l_HIO;
+static daTagStatue_HIO_c l_HIO;
 #endif
 
 static int CheckCreateHeap(fopAc_ac_c* i_this) {

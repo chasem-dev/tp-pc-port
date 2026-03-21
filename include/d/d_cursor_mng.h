@@ -8,6 +8,7 @@
 // TODO: putting this here until a more appropriate place is found
 extern u8 data_8053a730;
 
+#if PLATFORM_WII || PLATFORM_SHIELD
 class dCsr_mng_c {
     struct csr_c;
 
@@ -121,5 +122,6 @@ private:
     /* 0x08 */ list_c m_obj_list;
     /* 0x10 */ bool is_csr_on;
 };
+#endif /* PLATFORM_WII || PLATFORM_SHIELD */
 
 #endif /* D_CURSOR_MNG_H */

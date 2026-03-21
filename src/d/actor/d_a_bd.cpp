@@ -171,7 +171,11 @@ static void pl_check(bd_class* i_this) {
     }
 
     if ((i_this->field_0x618 & 0xF) == 0) {
+#ifdef TARGET_PC
+        var_r28 = (u32)(uintptr_t)fpcM_Search(s_a_sub, i_this);
+#else
         var_r28 = (u32)fpcM_Search(s_a_sub, i_this);
+#endif
     }
 
     if (daPy_getPlayerActorClass()->checkHorseRide()) {

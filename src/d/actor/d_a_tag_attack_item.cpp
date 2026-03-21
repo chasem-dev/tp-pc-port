@@ -17,7 +17,7 @@ public:
 };
 
 #if DEBUG
-daTagAtkItem_HIO_c l_HIO;
+static daTagAtkItem_HIO_c l_HIO;
 #endif
 
 static dCcD_SrcCyl l_cyl_src = {

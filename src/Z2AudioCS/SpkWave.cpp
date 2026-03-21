@@ -78,6 +78,10 @@ WaveData* SpkWave::getWaveData(s32 num) const {
     JUT_ASSERT(139, mWaveData);
     JUT_ASSERT(140, num < getNumOfWaves());
 
+#ifdef TARGET_PC
+    WaveData* data = (WaveData*)((uintptr_t)mWaveData + *(u32*)((uintptr_t)mWaveData + num * 4 + 8));
+#else
     WaveData* data = (WaveData*)((u32)mWaveData + *(u32*)((u32)mWaveData + num * 4 + 8));
+#endif
     return data;
 }

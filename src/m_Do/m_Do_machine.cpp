@@ -4,6 +4,9 @@
  */
 
 #include "m_Do/m_Do_machine.h"
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
 #include "JSystem/JFramework/JFWSystem.h"
 #include "JSystem/JKernel/JKRHeap.h"
 #include "JSystem/JUtility/JUTConsole.h"
@@ -874,12 +877,25 @@ int mDoMch_Create() {
     }
     #endif
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] mDoMch: calling firstInit...\n");
+#endif
     JFWSystem::setRenderMode(mDoMch_render_c::getRenderModeObj());
     JFWSystem::firstInit();
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] mDoMch: firstInit done, creating heaps...\n");
+#endif
     JKRExpHeap* dbPrintHeap = mDoExt_createDbPrintHeap(dbPrintHeapSize, JKRGetRootHeap());
     JUTDbPrint::start(NULL, dbPrintHeap);
     mDoExt_createAssertHeap(JKRGetRootHeap());
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] mDoMch: calling JFWSystem::init...\n");
+#endif
     JFWSystem::init();
+
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] mDoMch: JFWSystem::init done\n");
+#endif
 
     if (mDoMain::developmentMode == 0) {
         JUTAssertion::setVisible(false);

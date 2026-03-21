@@ -941,7 +941,7 @@ int daNpcKasiMich_c::getWolfPathNearIdx() {
     return rv;
 }
 
-void dummy() {
+static void dummy() {
     daNpcKasiMich_c::actionFunc temp;
     temp = &daNpcKasiMich_c::wait;
     temp = &daNpcKasiMich_c::wait;
@@ -1000,7 +1000,7 @@ int daNpcKasiMich_c::chace(int param_1) {
     return 1;
 }
 
-void dummy2() {
+static void dummy2() {
     daNpcKasiMich_c::actionFunc temp;
     temp = &daNpcKasiMich_c::chace;
 }

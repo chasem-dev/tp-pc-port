@@ -583,7 +583,7 @@ void JASAramStream::updateChannel(u32 i_callbackType, JASChannel* i_channel,
 s32 JASAramStream::channelProc() {
     OSMessage msg;
     while (OSReceiveMessage(&field_0x020, &msg, OS_MESSAGE_NOBLOCK)) {
-        switch ((u32)msg) {
+        switch ((uintptr_t)msg) {
         case 4:
             field_0x0ac = true;
             break;
@@ -592,18 +592,18 @@ s32 JASAramStream::channelProc() {
             break;
         }
     }
-    
+
     if (!field_0x0ac) {
         return 0;
     }
 
     while (OSReceiveMessage(&field_0x000, &msg, OS_MESSAGE_NOBLOCK)) {
-        switch ((u32)msg & 0xff) {
+        switch ((uintptr_t)msg & 0xff) {
         case 0:
             channelStart();
             break;
         case 1:
-            channelStop(JSUHiHalf((u32)msg));
+            channelStop(JSUHiHalf((u32)(uintptr_t)msg));
             break;
         case 2:
             field_0x0ae |= 1;

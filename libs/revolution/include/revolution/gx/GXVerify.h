@@ -1,6 +1,11 @@
 #ifndef _REVOLUTION_GX_GXVERIFY_H_
 #define _REVOLUTION_GX_GXVERIFY_H_
 
+/* Skip if dolphin GX verify is already defined (they're compatible) */
+#ifdef _DOLPHIN_GX_GXVERIFY_H_
+/* Already defined by dolphin/gx/GXVerify.h */
+#else
+
 #include <revolution/gx/GXEnum.h>
 #include <revolution/gx/GXStruct.h>
 
@@ -25,5 +30,7 @@ void __GXVerifyVATImm(GXAttr attr, GXCompCnt cnt, GXCompType type, u8 frac);
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* _DOLPHIN_GX_GXVERIFY_H_ */
 
 #endif

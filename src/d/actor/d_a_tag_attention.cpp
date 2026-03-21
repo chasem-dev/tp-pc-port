@@ -11,7 +11,7 @@
 #include "d/d_debug_viewer.h"
 
 #if DEBUG
-daAttp_HIO_c l_HIO;
+static daAttp_HIO_c l_HIO;
 
 daAttp_HIO_c::daAttp_HIO_c() {
     type_spec = 0;

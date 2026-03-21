@@ -31,11 +31,11 @@ int TStreamBuffer::uflow() {
 }
 
 s32 TStreamBuffer::xsputn(const char* param_0, s32 param_1) {
-    s32 var_r29 = std::min(param_1, pEnd_put_ - pCurrent_put_);
+    s32 var_r29 = std::min((s32)param_1, (s32)(pEnd_put_ - pCurrent_put_));
     if (var_r29 > 0) {
         const char* var_r27 = param_0 + var_r29;
         JUT_ASSERT(70, pCurrent_put_!=NULL);
-        pCurrent_put_ = std::copy<char>(param_0, var_r27, pCurrent_put_);
+        pCurrent_put_ = std::copy(param_0, var_r27, pCurrent_put_);
         param_0 = var_r27;
         param_1 -= var_r29;
     }

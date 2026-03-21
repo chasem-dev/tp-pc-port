@@ -1,6 +1,11 @@
 #ifndef _REVOLUTION_GX_GXTRANSFORM_H_
 #define _REVOLUTION_GX_GXTRANSFORM_H_
 
+/* Skip if dolphin GX transform is already defined (they're compatible) */
+#ifdef _DOLPHIN_GX_GXTRANSFORM_H_
+/* Already defined by dolphin/gx/GXTransform.h */
+#else
+
 #include <revolution/gx/GXEnum.h>
 
 #ifdef __cplusplus
@@ -30,5 +35,7 @@ void GXSetZScaleOffset(f32 scale, f32 offset);
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* _DOLPHIN_GX_GXTRANSFORM_H_ */
 
 #endif

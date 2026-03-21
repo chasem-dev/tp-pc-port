@@ -20,7 +20,7 @@ public:
 };
 
 #if DEBUG
-daTagMist_HIO_c l_HIO;
+static daTagMist_HIO_c l_HIO;
 
 daTagMist_HIO_c::daTagMist_HIO_c() {
     show_range = 0;

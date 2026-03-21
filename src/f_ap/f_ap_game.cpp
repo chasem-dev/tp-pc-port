@@ -720,13 +720,24 @@ void fapGm_After() {
     fopCamM_Management();
 }
 
+static int s_fapGm_frame = 0;
 void fapGm_Execute() {
+    s_fapGm_frame++;
     #if DEBUG
     JUTDbPrint::getManager()->setCharColor(g_HIO.mColor);
     #endif
 
+#ifdef TARGET_PC
+    if (s_fapGm_frame <= 3) fprintf(stderr, "[PC] fapGm_Execute: fpcM_Management...\n");
+#endif
     fpcM_Management(NULL, fapGm_After);
+#ifdef TARGET_PC
+    if (s_fapGm_frame <= 3) fprintf(stderr, "[PC] fapGm_Execute: cCt_Counter...\n");
+#endif
     cCt_Counter(0);
+#ifdef TARGET_PC
+    if (s_fapGm_frame <= 3) fprintf(stderr, "[PC] fapGm_Execute: done\n");
+#endif
 }
 
 fapGm_HIO_c g_HIO;

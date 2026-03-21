@@ -1,6 +1,11 @@
 #ifndef _REVOLUTION_GX_GXCOMMANDLIST_H_
 #define _REVOLUTION_GX_GXCOMMANDLIST_H_
 
+/* Skip if dolphin GX command list is already defined (they're compatible) */
+#ifdef _DOLPHIN_GX_GXCOMMANDLIST_H_
+/* Already defined by dolphin/gx/GXCommandList.h */
+#else
+
 #include <revolution/types.h>
 
 #define GX_NOP                 0x00
@@ -33,5 +38,7 @@ extern u8 GXTexImage1Ids[8];
 extern u8 GXTexImage2Ids[8];
 extern u8 GXTexImage3Ids[8];
 extern u8 GXTexTlutIds[8];
+
+#endif /* _DOLPHIN_GX_GXCOMMANDLIST_H_ */
 
 #endif

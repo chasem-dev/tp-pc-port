@@ -15,7 +15,7 @@
 #include <cstring>
 
 #if DEBUG
-daObjTobyHouse_HIO_c l_HIO;
+static daObjTobyHouse_HIO_c l_HIO;
 
 daObjTobyHouse_HIO_c::daObjTobyHouse_HIO_c() {
     mShakingCycle = 800;

@@ -143,7 +143,7 @@ const dCcD_SrcGObjInf daWtPillar_c::mCcDObjCoInfo = {
     {},  // mGObjCo
 };
 
-daWtPillar_HIO_c l_HIO;
+static daWtPillar_HIO_c l_HIO;
 
 cull_box l_cull_box = {
     {-30.0f, -10.0f, -30.0f},

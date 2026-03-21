@@ -9,7 +9,7 @@
 #include "f_pc/f_pc_name.h"
 
 #if DEBUG
-daAndsw_HIO_c l_HIO;
+static daAndsw_HIO_c l_HIO;
 
 daAndsw_HIO_c::daAndsw_HIO_c() {
     field_0x6 = 0;

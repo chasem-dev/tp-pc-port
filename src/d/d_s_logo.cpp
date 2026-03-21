@@ -217,6 +217,11 @@ void dScnLogo_c::checkProgSelect() {
 }
 
 int dScnLogo_c::draw() {
+#ifdef TARGET_PC
+    static int s_draw_count = 0;
+    s_draw_count++;
+    if (s_draw_count % 30 == 1) fprintf(stderr, "[PC] dScnLogo_c::draw() cmd=%d timer=%d (frame %d)\n", mExecCommand, mTimer, s_draw_count);
+#endif
     cLib_calcTimer<u16>(&mTimer);
     (this->*l_execFunc[mExecCommand])();
     return 1;
@@ -524,6 +529,10 @@ void dScnLogo_c::warningOutDraw() {
 }
 
 void dScnLogo_c::nintendoInDraw() {
+#ifdef TARGET_PC
+    static int s_nin = 0;
+    if (s_nin++ < 3) fprintf(stderr, "[PC] nintendoInDraw: mNintendoLogo=%p\n", (void*)mNintendoLogo);
+#endif
     dComIfGd_set2DOpa(mNintendoLogo);
 
     if (mTimer == 0) {
@@ -924,7 +933,13 @@ dScnLogo_c::~dScnLogo_c() {
 }
 
 static int phase_0(dScnLogo_c* i_this) {
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] logo phase_0: setFadeColor...\n");
+#endif
     mDoGph_gInf_c::setFadeColor(*(JUtility::TColor*)&g_blackColor);
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] logo phase_0: particle_create...\n");
+#endif
     dComIfGp_particle_create();
 
     OS_REPORT("\x1b[31m%d gameHeap->getFreeSize %08x(%d)\n\x1b[m", 1497, mDoExt_getGameHeap()->getFreeSize(), mDoExt_getGameHeap()->getFreeSize());
@@ -969,14 +984,20 @@ static int phase_0(dScnLogo_c* i_this) {
 }
 
 static int phase_1(dScnLogo_c* i_this) {
+#ifdef TARGET_PC
+    static int s_ph1_count = 0;
+    if (s_ph1_count++ < 3) fprintf(stderr, "[PC] logo phase_1: cDyl=%d\n", cDyl_InitAsyncIsDone());
+#endif
     if (!cDyl_InitAsyncIsDone()) {
         return cPhs_INIT_e;
     }
 
     #if !(PLATFORM_WII || PLATFORM_SHIELD)
+    #ifndef TARGET_PC
     if (!mDoAud_zelAudio_c::isInitFlag() || Z2AudioMgr::getInterface()->checkFirstWaves()) {
         return cPhs_INIT_e;
     }
+    #endif
     #endif
 
     #if VERSION == VERSION_GCN_PAL
@@ -1007,6 +1028,9 @@ static int phase_1(dScnLogo_c* i_this) {
     rt = dComIfG_setObjectRes(LOGO_ARC, (u8)0, i_this->mLogoHeap);
     #endif
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] logo phase_1: setObjectRes('%s') = %d\n", LOGO_ARC, rt);
+#endif
     JUT_ASSERT(1652, rt == 1);
 
     mDoRst::setLogoScnFlag(1);
@@ -1017,11 +1041,23 @@ static int phase_1(dScnLogo_c* i_this) {
 }
 
 static int phase_2(dScnLogo_c* i_this) {
+#ifdef TARGET_PC
+    static int s_ph2_count = 0;
+    int sync = dComIfG_syncAllObjectRes();
+    if (s_ph2_count++ % 60 == 0) fprintf(stderr, "[PC] logo phase_2: syncAllObjectRes=%d (call %d)\n", sync, s_ph2_count);
+    if (sync) {
+        return cPhs_INIT_e;
+    } else {
+        fprintf(stderr, "[PC] logo phase_2: COMPLETE — resources loaded!\n");
+        return cPhs_COMPLEATE_e;
+    }
+#else
     if (dComIfG_syncAllObjectRes()) {
         return cPhs_INIT_e;
     } else {
         return cPhs_COMPLEATE_e;
     }
+#endif
 }
 
 static int resLoad(request_of_phase_process_class* i_phase, dScnLogo_c* i_this) {
@@ -1032,6 +1068,11 @@ static int resLoad(request_of_phase_process_class* i_phase, dScnLogo_c* i_this) 
 }
 
 int dScnLogo_c::create() {
+#ifdef TARGET_PC
+    static int s_create_count = 0;
+    s_create_count++;
+    if (s_create_count % 30 == 1) fprintf(stderr, "[PC] dScnLogo_c::create() #%d\n", s_create_count);
+#endif
     int phase_state = resLoad(&field_0x1c4, this);
     if (phase_state != cPhs_COMPLEATE_e) {
         return phase_state;
@@ -1041,6 +1082,9 @@ int dScnLogo_c::create() {
     data_8053a730 = 1;
     #endif
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] logo create: resLoad done, logoInitGC...\n");
+#endif
     mpHeap = mDoExt_setCurrentHeap(mLogo01Heap);
 
     #if PLATFORM_WII || PLATFORM_SHIELD
@@ -1050,6 +1094,9 @@ int dScnLogo_c::create() {
     #endif
 
     JKRSetCurrentHeap(mpHeap);
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] logo create: logoInitGC done, dvdDataLoad...\n");
+#endif
 
     OS_REPORT("\x1b[31m%d gameHeap->getFreeSize %08x(%d)\n\x1b[m", 1732, mDoExt_getGameHeap()->getFreeSize(), mDoExt_getGameHeap()->getFreeSize());
 
@@ -1057,7 +1104,7 @@ int dScnLogo_c::create() {
 
     OS_REPORT("\x1b[31m%d gameHeap->getFreeSize %08x(%d)\n\x1b[m", 1738, mDoExt_getGameHeap()->getFreeSize(), mDoExt_getGameHeap()->getFreeSize());
 
-    #if !(PLATFORM_WII || PLATFORM_SHIELD)
+    #if !(PLATFORM_WII || PLATFORM_SHIELD) && !defined(TARGET_PC)
     Z2AudioMgr::getInterface()->loadStaticWaves();
     #endif
 
@@ -1080,6 +1127,13 @@ int dScnLogo_c::create() {
     mDoGph_gInf_c::startFadeIn(30);
 
     #if !(PLATFORM_WII || PLATFORM_SHIELD)
+#ifdef TARGET_PC
+    /* Skip warning/disclaimer — go straight to Nintendo logo */
+    mTimer = 0;
+    mExecCommand = EXEC_NINTENDO_IN;
+    fprintf(stderr, "[PC] logo: starting at NINTENDO_IN\n");
+    {
+#else
     checkProgSelect();
     if (field_0x20a != 0) {
         mExecCommand = EXEC_PROG_IN;
@@ -1093,6 +1147,7 @@ int dScnLogo_c::create() {
             mTimer = 120;
             mExecCommand = EXEC_WARNING_IN;
         }
+#endif
         mDoRst::setProgSeqFlag(1);
     }
 
@@ -1186,6 +1241,16 @@ void dScnLogo_c::logoInitWii() {
 #else
 void dScnLogo_c::logoInitGC() {
     ResTIMG* nintendoImg = (ResTIMG*)dComIfG_getObjectRes(LOGO_ARC, 4);
+#ifdef TARGET_PC
+    {
+        dRes_info_c* info = dComIfG_getObjectResInfo(LOGO_ARC);
+        fprintf(stderr, "[PC] logoInitGC: resInfo=%p, nintendoImg=%p (LOGO_ARC=%s idx=4)\n",
+                (void*)info, (void*)nintendoImg, LOGO_ARC);
+        if (info) {
+            fprintf(stderr, "[PC]   count=%d\n", info->getCount());
+        }
+    }
+#endif
     mNintendoLogo = new dDlst_2D_c(nintendoImg, 117, 154, 376, 104, 255);
 #if VERSION == VERSION_GCN_JPN
     mNintendoLogo->getPicture()->setWhite(JUtility::TColor(0, 70, 255, 255));

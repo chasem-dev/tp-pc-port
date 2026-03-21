@@ -1,22 +1,41 @@
 #ifndef _REVOLUTION_TYPES_H_
 #define _REVOLUTION_TYPES_H_
 
+/* If dolphin types are already defined, skip (they're compatible) */
+#ifdef _DOLPHIN_TYPES_H_
+/* Types already defined by dolphin/types.h */
+#else
+
 typedef signed   char          s8;
 typedef unsigned char          u8;
 typedef signed   short int     s16;
 typedef unsigned short int     u16;
+#ifdef TARGET_PC
+#include <stdint.h>
+typedef int32_t            s32;
+typedef uint32_t           u32;
+#else
 typedef signed   long          s32;
 typedef unsigned long          u32;
+#endif
 typedef signed   long long int s64;
 typedef unsigned long long int u64;
 
 typedef volatile u8  vu8;
 typedef volatile u16 vu16;
+#ifdef TARGET_PC
+typedef volatile uint32_t  vu32;
+#else
 typedef volatile u32 vu32;
+#endif
 typedef volatile u64 vu64;
 typedef volatile s8  vs8;
 typedef volatile s16 vs16;
+#ifdef TARGET_PC
+typedef volatile int32_t   vs32;
+#else
 typedef volatile s32 vs32;
+#endif
 typedef volatile s64 vs64;
 
 typedef float  f32;
@@ -33,6 +52,8 @@ typedef unsigned int uint;
 
 #define FALSE 0
 #define TRUE 1
+
+#endif /* _DOLPHIN_TYPES_H_ */
 
 #if defined(__MWERKS__)
 #define AT_ADDRESS(addr) : (addr)

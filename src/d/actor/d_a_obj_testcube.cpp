@@ -8,7 +8,7 @@
 #include "d/actor/d_a_obj_testcube.h"
 
 #if DEBUG
-const char* l_arcName[] = {
+static const char* l_arcName[] = {
     "K_cube00",
     "K_cube01",
     "K_cyli00",
@@ -24,7 +24,7 @@ public:
     /* 0x6 */ GXColor mColor[255];
 };
 
-daObjCube_HIO_c l_HIO;
+static daObjCube_HIO_c l_HIO;
 
 static const GXColor l_obj_color[] = {
     {0x00, 0x00, 0x00, 0xFF}, {0x12, 0x09, 0x00, 0xFF}, {0x0c, 0x0c, 0x0c, 0xFF},

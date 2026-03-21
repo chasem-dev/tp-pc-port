@@ -54,6 +54,9 @@ void* JKRDvdRipper::loadToMainRAM(JKRDvdFile* dvdFile, u8* dst, JKRExpandSwitch 
     u32 expandSize;
     u8 *mem = NULL;
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] loadToMainRAM: fileSize=%d\n", dvdFile->getFileSize());
+#endif
     fileSizeAligned = ALIGN_NEXT(dvdFile->getFileSize(), 32);
     if (expandSwitch == EXPAND_SWITCH_UNKNOWN1)
     {
@@ -74,6 +77,10 @@ void* JKRDvdRipper::loadToMainRAM(JKRDvdFile* dvdFile, u8* dst, JKRExpandSwitch 
 
         compression = JKRCheckCompressed_noASR(bufPtr);
         expandSize = JKRDecompExpandSize(bufPtr);
+#ifdef TARGET_PC
+        fprintf(stderr, "[PC] JKRDvdToMainRam: compression=%d expandSize=%u fileSize=%u\n",
+                compression, expandSize, fileSizeAligned);
+#endif
     }
 
     if (pCompression)
@@ -174,7 +181,36 @@ void* JKRDvdRipper::loadToMainRAM(JKRDvdFile* dvdFile, u8* dst, JKRExpandSwitch 
         }
         else if (compression2 == COMPRESSION_YAZ0)
         {
+#ifdef TARGET_PC
+            /* Simple Yaz0 decode for sub-archive at offset */
+            {
+                u32 compSize = fileSizeAligned - offset;
+                u8* compBuf2 = (u8*)malloc(compSize);
+                DVDReadPrio(dvdFile->getFileInfo(), compBuf2, compSize, (s32)offset, 2);
+                u32 expSz2 = ((u32)compBuf2[4]<<24)|((u32)compBuf2[5]<<16)|((u32)compBuf2[6]<<8)|compBuf2[7];
+                if (dstLength != 0 && expSz2 > dstLength) expSz2 = dstLength;
+                u8* src2 = compBuf2 + 0x10;
+                u8* end2 = dst + expSz2;
+                u8* dp2 = dst;
+                int bits2 = 0, code2 = 0;
+                while (dp2 < end2) {
+                    if (bits2 == 0) { code2 = *src2++; bits2 = 8; }
+                    if (code2 & 0x80) { *dp2++ = *src2++; }
+                    else {
+                        int b1 = *src2++, b2 = *src2++;
+                        int dist = ((b1 & 0xF) << 8) | b2;
+                        int n = (b1 >> 4) ? (b1 >> 4) + 2 : (*src2++) + 0x12;
+                        u8* cp = dp2 - dist - 1;
+                        for (int i = 0; i < n && dp2 < end2; i++) *dp2++ = *cp++;
+                    }
+                    code2 <<= 1; bits2--;
+                }
+                if (param_8) *param_8 = (u32)(dp2 - dst);
+                free(compBuf2);
+            }
+#else
             JKRDecompressFromDVD(dvdFile, dst, fileSizeAligned, dstLength, 0, offset, param_8);
+#endif
         } else {
             JUTException::panic(__FILE__, 0x143, "Sorry, not applied for SZP archive.");
         }
@@ -215,7 +251,72 @@ void* JKRDvdRipper::loadToMainRAM(JKRDvdFile* dvdFile, u8* dst, JKRExpandSwitch 
     }
     else if (compression == COMPRESSION_YAZ0)
     {
+#ifdef TARGET_PC
+        /* On PC, use simple read-all-then-decompress instead of streaming
+         * decompression which has buffer management issues on 64-bit. */
+        fprintf(stderr, "[PC] YAZ0 simple: fileSizeAligned=%u expandSize=%u offset=%u\n",
+                fileSizeAligned, expandSize, offset);
+        u8* compBuf = (u8*)malloc(fileSizeAligned);
+        s32 readResult;
+        while (true) {
+            readResult = DVDReadPrio(dvdFile->getFileInfo(), compBuf, fileSizeAligned, 0, 2);
+            if (readResult >= 0) break;
+            if (readResult == -3 || !errorRetry) { free(compBuf); if (hasAllocated) JKRFree(dst); return NULL; }
+        }
+        fprintf(stderr, "[PC] YAZ0 compBuf: %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x\n",
+                compBuf[0], compBuf[1], compBuf[2], compBuf[3],
+                compBuf[4], compBuf[5], compBuf[6], compBuf[7],
+                compBuf[8], compBuf[9], compBuf[10], compBuf[11],
+                compBuf[12], compBuf[13], compBuf[14], compBuf[15]);
+        /* Decode Yaz0 in-memory — read expanded size from Yaz0 header directly
+         * because the expandSize variable may have been capped by dstLength. */
+        {
+            u32 yaz0Size = ((u32)compBuf[4]<<24)|((u32)compBuf[5]<<16)|((u32)compBuf[6]<<8)|compBuf[7];
+            /* If dst was allocated too small (expandSize was capped by dstLength), reallocate.
+             * But only if the yaz0 header size looks sane (< 64MB) and we allocated the buffer. */
+            if (yaz0Size > expandSize && yaz0Size < 0x4000000 && hasAllocated && dstLength == 0) {
+                JKRFree(dst);
+                dst = (u8*)JKRAllocFromHeap(heap, yaz0Size, allocDirection == ALLOC_DIRECTION_FORWARD ? 32 : -32);
+                if (!dst) { free(compBuf); return NULL; }
+                expandSize = yaz0Size;
+            } else if (expandSize > 0 && expandSize < yaz0Size) {
+                yaz0Size = expandSize; /* respect dstLength cap or caller-provided dst buffer */
+            }
+            u8* src = compBuf + 0x10;
+            u8* end = dst + yaz0Size;
+            u8* dp = dst;
+            int bits = 0, code = 0;
+            while (dp < end) {
+                if (bits == 0) { code = *src++; bits = 8; }
+                if (code & 0x80) { *dp++ = *src++; }
+                else {
+                    int b1 = *src++, b2 = *src++;
+                    int dist = ((b1 & 0xF) << 8) | b2;
+                    int n = (b1 >> 4) ? (b1 >> 4) + 2 : (*src++) + 0x12;
+                    u8* cp = dp - dist - 1;
+                    for (int i = 0; i < n && dp < end; i++) *dp++ = *cp++;
+                }
+                code <<= 1; bits--;
+            }
+            if (param_8) *param_8 = (u32)(dp - dst);
+        }
+        free(compBuf);
+        u32 result = 0;
+#else
         u32 result = JKRDecompressFromDVD(dvdFile, dst, fileSizeAligned, expandSize, offset, 0, param_8);
+#endif
+#ifdef TARGET_PC
+        {
+            /* Check non-zero bytes in decompressed output */
+            int nz = 0;
+            for (u32 i = 0; i < expandSize && i < 306176; i++) if (dst[i]) nz++;
+            fprintf(stderr, "[PC] JKRDvdToMainRam YAZ0: dst=%p expandSize=%u tsPtr=%u nonzero=%d dst[32..35]=%02x%02x%02x%02x dst[544..547]=%02x%02x%02x%02x\n",
+                    dst, expandSize, param_8 ? *param_8 : 0, nz,
+                    dst[32], dst[33], dst[34], dst[35],
+                    expandSize > 547 ? dst[544] : 0, expandSize > 547 ? dst[545] : 0,
+                    expandSize > 547 ? dst[546] : 0, expandSize > 547 ? dst[547] : 0);
+        }
+#endif
         if (result != 0u)
         {
             if (hasAllocated)
@@ -329,8 +430,13 @@ int decompSZS_subroutine(u8* src, u8* dest) {
     }
 
     SYaz0Header* header = (SYaz0Header*)src;
-    endPtr = dest + (header->length - fileOffset);
-    if (endPtr > dest + maxDest) {
+#ifdef TARGET_PC
+    u32 expandedSize = (src[4] << 24) | (src[5] << 16) | (src[6] << 8) | src[7];
+#else
+    u32 expandedSize = header->length;
+#endif
+    endPtr = dest + (expandedSize - fileOffset);
+    if (maxDest != 0 && endPtr > dest + maxDest) {
         endPtr = dest + maxDest;
     }
 
@@ -430,6 +536,10 @@ int decompSZS_subroutine(u8* src, u8* dest) {
         validBitCount--;
     } while (dest < endPtr);
     *tsPtr = ts;
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] decompSZS: decompressed %u bytes (endPtr-dest_start=%td)\n",
+            ts, (ptrdiff_t)(endPtr - (dest - ts)));
+#endif
     return 0;
 }
 

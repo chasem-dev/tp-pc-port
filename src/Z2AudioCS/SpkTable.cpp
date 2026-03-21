@@ -27,6 +27,16 @@ void SpkTable::setResource(void* res) {
 
     mNumOfSound = resourceCount;
 
+#ifdef TARGET_PC
+    s32 entryOffset = (intptr_t)res + entryOff;
+    mEntryOffset = entryOffset;
+    s32* dataOffsets = (s32*)((intptr_t)res + dataOffsetsStartOff);
+    if (!isDataOffsetsInitialized) {
+        for (s32 i = 0; i < mNumOfSound; i++) {
+            dataOffsets[i] += (intptr_t)res;
+        }
+    }
+#else
     s32 entryOffset = (s32)res + entryOff;
     mEntryOffset = entryOffset;
     s32* dataOffsets = (s32*)((s32)res + dataOffsetsStartOff);
@@ -35,6 +45,7 @@ void SpkTable::setResource(void* res) {
             dataOffsets[i] += (s32)res;
         }
     }
+#endif
 
     s32* dataOffsetsCopy = dataOffsets;
     mDataOffsets = dataOffsetsCopy;

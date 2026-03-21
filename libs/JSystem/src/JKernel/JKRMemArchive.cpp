@@ -25,7 +25,7 @@ JKRMemArchive::JKRMemArchive(s32 entryNum, JKRArchive::EMountDirection mountDire
 }
 
 JKRMemArchive::JKRMemArchive(void* buffer, u32 bufferSize, JKRMemBreakFlag param_3)
-    : JKRArchive((s32)buffer, MOUNT_MEM) {
+    : JKRArchive((uintptr_t)buffer, MOUNT_MEM) {
     mIsMounted = false;
     if (!open(buffer, bufferSize, param_3)) {
         return;
@@ -89,14 +89,81 @@ bool JKRMemArchive::open(s32 entryNum, JKRArchive::EMountDirection mountDirectio
         mMountMode = UNKNOWN_MOUNT_MODE;
     }
     else {
+#ifdef TARGET_PC
+        /* Debug: print header + data info */
+        fprintf(stderr, "[PC] JKRMemArchive::open(entryNum=%d): compression=%d\n",
+                entryNum, mCompression);
+        {
+            u8* raw = (u8*)mArcHeader;
+            u32 hdrLen = read_big_endian_u32(&((u32*)raw)[2]);
+            u8* info = raw + hdrLen;
+            fprintf(stderr, "[PC]   ArcDataInfo @ +%u: %02x%02x%02x%02x %02x%02x%02x%02x\n",
+                    hdrLen, info[0], info[1], info[2], info[3], info[4], info[5], info[6], info[7]);
+        }
+        /* Byte-swap SArcHeader from big-endian disc data */
+        mArcHeader->signature = read_big_endian_u32(&mArcHeader->signature);
+        mArcHeader->file_length = read_big_endian_u32(&mArcHeader->file_length);
+        mArcHeader->header_length = read_big_endian_u32(&mArcHeader->header_length);
+        mArcHeader->file_data_offset = read_big_endian_u32(&mArcHeader->file_data_offset);
+        mArcHeader->file_data_length = read_big_endian_u32(&mArcHeader->file_data_length);
+        mArcHeader->field_0x14 = read_big_endian_u32(&mArcHeader->field_0x14);
+        mArcHeader->field_0x18 = read_big_endian_u32(&mArcHeader->field_0x18);
+        mArcHeader->field_0x1c = read_big_endian_u32(&mArcHeader->field_0x1c);
+#endif
         JUT_ASSERT(438, mArcHeader->signature == 'RARC');
         mArcInfoBlock = (SArcDataInfo *)((u8 *)mArcHeader + mArcHeader->header_length);
+#ifdef TARGET_PC
+        /* Byte-swap SArcDataInfo */
+        mArcInfoBlock->num_nodes = read_big_endian_u32(&mArcInfoBlock->num_nodes);
+        mArcInfoBlock->node_offset = read_big_endian_u32(&mArcInfoBlock->node_offset);
+        mArcInfoBlock->num_file_entries = read_big_endian_u32(&mArcInfoBlock->num_file_entries);
+        mArcInfoBlock->file_entry_offset = read_big_endian_u32(&mArcInfoBlock->file_entry_offset);
+        mArcInfoBlock->string_table_length = read_big_endian_u32(&mArcInfoBlock->string_table_length);
+        mArcInfoBlock->string_table_offset = read_big_endian_u32(&mArcInfoBlock->string_table_offset);
+        mArcInfoBlock->next_free_file_id = read_big_endian_u16(&mArcInfoBlock->next_free_file_id);
+#endif
         mNodes = (SDIDirEntry *)((u8 *)&mArcInfoBlock->num_nodes + mArcInfoBlock->node_offset);
-        mFiles = (SDIFileEntry *)((u8 *)&mArcInfoBlock->num_nodes + mArcInfoBlock->file_entry_offset);
         mStringTable = (char *)((u8 *)&mArcInfoBlock->num_nodes + mArcInfoBlock->string_table_offset);
+#ifdef TARGET_PC
+        /* Byte-swap directory nodes */
+        for (u32 i = 0; i < mArcInfoBlock->num_nodes; i++) {
+            mNodes[i].type = read_big_endian_u32(&mNodes[i].type);
+            mNodes[i].name_offset = read_big_endian_u32(&mNodes[i].name_offset);
+            mNodes[i].field_0x8 = read_big_endian_u16(&mNodes[i].field_0x8);
+            mNodes[i].num_entries = read_big_endian_u16(&mNodes[i].num_entries);
+            mNodes[i].first_file_index = read_big_endian_u32(&mNodes[i].first_file_index);
+        }
+        /* File entries on disc are 20 bytes each (no pointer).
+         * SDIFileEntry on 64-bit is 24 bytes (has void* data).
+         * Convert from disc format to memory format. */
+        {
+            struct SDIFileEntryDisc { u16 file_id; u16 name_hash; u32 type_flags_and_name_offset; u32 data_offset; u32 data_size; u32 pad; };
+            SDIFileEntryDisc* disc_files = (SDIFileEntryDisc*)((u8 *)&mArcInfoBlock->num_nodes + mArcInfoBlock->file_entry_offset);
+            u32 num_entries = mArcInfoBlock->num_file_entries;
+            SDIFileEntry* new_files = (SDIFileEntry*)malloc(num_entries * sizeof(SDIFileEntry));
+            for (u32 i = 0; i < num_entries; i++) {
+                new_files[i].file_id = read_big_endian_u16(&disc_files[i].file_id);
+                new_files[i].name_hash = read_big_endian_u16(&disc_files[i].name_hash);
+                new_files[i].type_flags_and_name_offset = read_big_endian_u32(&disc_files[i].type_flags_and_name_offset);
+                new_files[i].data_offset = read_big_endian_u32(&disc_files[i].data_offset);
+                new_files[i].data_size = read_big_endian_u32(&disc_files[i].data_size);
+                new_files[i].data = NULL;
+            }
+            mFiles = new_files;
+        }
+#else
+        mFiles = (SDIFileEntry *)((u8 *)&mArcInfoBlock->num_nodes + mArcInfoBlock->file_entry_offset);
+#endif
 
         mArchiveData =
             (u8 *)((uintptr_t)mArcHeader + mArcHeader->header_length + mArcHeader->file_data_offset);
+#ifdef TARGET_PC
+        fprintf(stderr, "[PC] JKRMemArchive: mArcHeader=%p archiveData=%p (hdr+%u+%u), bytes: %02x%02x%02x%02x %02x%02x%02x%02x\n",
+                (void*)mArcHeader,
+                mArchiveData, mArcHeader->header_length, mArcHeader->file_data_offset,
+                mArchiveData[0], mArchiveData[1], mArchiveData[2], mArchiveData[3],
+                mArchiveData[4], mArchiveData[5], mArchiveData[6], mArchiveData[7]);
+#endif
         mIsOpen = true;
     }
 
@@ -111,13 +178,57 @@ bool JKRMemArchive::open(s32 entryNum, JKRArchive::EMountDirection mountDirectio
 
 bool JKRMemArchive::open(void* buffer, u32 bufferSize, JKRMemBreakFlag flag) {
     mArcHeader = (SArcHeader *)buffer;
+#ifdef TARGET_PC
+    mArcHeader->signature = read_big_endian_u32(&mArcHeader->signature);
+    mArcHeader->file_length = read_big_endian_u32(&mArcHeader->file_length);
+    mArcHeader->header_length = read_big_endian_u32(&mArcHeader->header_length);
+    mArcHeader->file_data_offset = read_big_endian_u32(&mArcHeader->file_data_offset);
+    mArcHeader->file_data_length = read_big_endian_u32(&mArcHeader->file_data_length);
+    mArcHeader->field_0x14 = read_big_endian_u32(&mArcHeader->field_0x14);
+    mArcHeader->field_0x18 = read_big_endian_u32(&mArcHeader->field_0x18);
+    mArcHeader->field_0x1c = read_big_endian_u32(&mArcHeader->field_0x1c);
+#endif
     JUT_ASSERT(491, mArcHeader->signature == 'RARC');
     mArcInfoBlock = (SArcDataInfo *)((u8 *)mArcHeader + mArcHeader->header_length);
+#ifdef TARGET_PC
+    mArcInfoBlock->num_nodes = read_big_endian_u32(&mArcInfoBlock->num_nodes);
+    mArcInfoBlock->node_offset = read_big_endian_u32(&mArcInfoBlock->node_offset);
+    mArcInfoBlock->num_file_entries = read_big_endian_u32(&mArcInfoBlock->num_file_entries);
+    mArcInfoBlock->file_entry_offset = read_big_endian_u32(&mArcInfoBlock->file_entry_offset);
+    mArcInfoBlock->string_table_length = read_big_endian_u32(&mArcInfoBlock->string_table_length);
+    mArcInfoBlock->string_table_offset = read_big_endian_u32(&mArcInfoBlock->string_table_offset);
+    mArcInfoBlock->next_free_file_id = read_big_endian_u16(&mArcInfoBlock->next_free_file_id);
+#endif
     mNodes = (SDIDirEntry *)((u8 *)&mArcInfoBlock->num_nodes + mArcInfoBlock->node_offset);
-    mFiles = (SDIFileEntry *)((u8 *)&mArcInfoBlock->num_nodes + mArcInfoBlock->file_entry_offset);
     mStringTable = (char *)((u8 *)&mArcInfoBlock->num_nodes + mArcInfoBlock->string_table_offset);
+#ifdef TARGET_PC
+    for (u32 i = 0; i < mArcInfoBlock->num_nodes; i++) {
+        mNodes[i].type = read_big_endian_u32(&mNodes[i].type);
+        mNodes[i].name_offset = read_big_endian_u32(&mNodes[i].name_offset);
+        mNodes[i].field_0x8 = read_big_endian_u16(&mNodes[i].field_0x8);
+        mNodes[i].num_entries = read_big_endian_u16(&mNodes[i].num_entries);
+        mNodes[i].first_file_index = read_big_endian_u32(&mNodes[i].first_file_index);
+    }
+    {
+        struct SDIFileEntryDisc { u16 file_id; u16 name_hash; u32 type_flags_and_name_offset; u32 data_offset; u32 data_size; u32 pad; };
+        SDIFileEntryDisc* disc_files = (SDIFileEntryDisc*)((u8 *)&mArcInfoBlock->num_nodes + mArcInfoBlock->file_entry_offset);
+        u32 num_entries = mArcInfoBlock->num_file_entries;
+        SDIFileEntry* new_files = (SDIFileEntry*)malloc(num_entries * sizeof(SDIFileEntry));
+        for (u32 i = 0; i < num_entries; i++) {
+            new_files[i].file_id = read_big_endian_u16(&disc_files[i].file_id);
+            new_files[i].name_hash = read_big_endian_u16(&disc_files[i].name_hash);
+            new_files[i].type_flags_and_name_offset = read_big_endian_u32(&disc_files[i].type_flags_and_name_offset);
+            new_files[i].data_offset = read_big_endian_u32(&disc_files[i].data_offset);
+            new_files[i].data_size = read_big_endian_u32(&disc_files[i].data_size);
+            new_files[i].data = NULL;
+        }
+        mFiles = new_files;
+    }
+#else
+    mFiles = (SDIFileEntry *)((u8 *)&mArcInfoBlock->num_nodes + mArcInfoBlock->file_entry_offset);
+#endif
     mArchiveData = (u8 *)(((uintptr_t)mArcHeader + mArcHeader->header_length) + mArcHeader->file_data_offset);
-    mIsOpen = (flag == JKRMEMBREAK_FLAG_UNKNOWN1) ? true : false; // mIsOpen might be u8
+    mIsOpen = (flag == JKRMEMBREAK_FLAG_UNKNOWN1) ? true : false;
     mHeap = JKRHeap::findFromRoot(buffer);
     mCompression = COMPRESSION_NONE;
     return true;

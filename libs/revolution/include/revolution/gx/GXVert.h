@@ -1,6 +1,11 @@
 #ifndef _REVOLUTION_GX_GXVERT_H_
 #define _REVOLUTION_GX_GXVERT_H_
 
+/* Skip if dolphin GX vertex funcs are already defined (they're compatible) */
+#ifdef _DOLPHIN_GX_GXVERT_H_
+/* Already defined by dolphin/gx/GXVert.h */
+#else
+
 #include <revolution/types.h>
 #include <revolution/os.h>
 
@@ -136,5 +141,7 @@ FUNC_1PARAM(GXMatrixIndex, u8)
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* _DOLPHIN_GX_GXVERT_H_ */
 
 #endif

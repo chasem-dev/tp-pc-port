@@ -27,7 +27,7 @@ static int daObjWaterFall_Create(fopAc_ac_c* i_this);
 static fopAc_ac_c* target_info[MAX_TARGET_INFO_COUNT]; // Mutually exclusive list of bomb/arrow actors to be potentially deleted
 static int target_info_count;
 
-const char* l_arcName = "sample";
+static const char* l_arcName = "sample";
 
 #if DEBUG
 static cull_box l_cull_box = {

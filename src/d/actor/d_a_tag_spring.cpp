@@ -29,7 +29,7 @@ daTagSpring_HIO_c::daTagSpring_HIO_c() {
 }
 
 #if DEBUG
-daTagSpring_HIO_c l_HIO;
+static daTagSpring_HIO_c l_HIO;
 
 void daTagSpring_HIO_c::genMessage(JORMContext* ctx) {
     // "Spirit spring"

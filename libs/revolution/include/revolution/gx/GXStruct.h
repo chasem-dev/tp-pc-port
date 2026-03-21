@@ -1,6 +1,11 @@
 #ifndef _REVOLUTION_GX_GXSTRUCT_H_
 #define _REVOLUTION_GX_GXSTRUCT_H_
 
+/* Skip if dolphin GX structs are already defined (they're compatible) */
+#ifdef _DOLPHIN_GX_GXSTRUCT_H_
+/* Already defined by dolphin/gx/GXStruct.h */
+#else
+
 #include <revolution/gx/GXEnum.h>
 #include <revolution/vi/vitypes.h>
 
@@ -71,5 +76,7 @@ typedef struct _GXVtxAttrFmtList {
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* _DOLPHIN_GX_GXSTRUCT_H_ */
 
 #endif

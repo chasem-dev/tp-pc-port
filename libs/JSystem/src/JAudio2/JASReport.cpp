@@ -4,6 +4,7 @@
 
 #include "JSystem/JSystem.h" // IWYU pragma: keep
 
+#include <cstdarg>
 #include "JSystem/JAudio2/JASReport.h"
 #include "JSystem/JAudio2/JASCalc.h"
 #include "JSystem/JAudio2/JASMutex.h"
