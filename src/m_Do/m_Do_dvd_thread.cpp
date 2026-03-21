@@ -93,6 +93,11 @@ static void dummy1() {
 
 static s32 my_DVDConvertPathToEntrynum(char const* path) {
     s32 entrynum = DVDConvertPathToEntrynum(path);
+#ifdef TARGET_PC
+    if (entrynum < 0) {
+        fprintf(stderr, "[DVD] path NOT FOUND: '%s'\n", path);
+    }
+#endif
 #if DEBUG
     if (entrynum < 0) {
         BOOL connected = mDoCPd_c::isConnect(2);

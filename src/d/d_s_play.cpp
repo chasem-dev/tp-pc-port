@@ -1324,6 +1324,14 @@ static int phase_2(dScnPly_c* i_this) {
         return cPhs_INIT_e;
     }
 
+#ifdef TARGET_PC
+    /* Sync stage resources — on PC inline DVD completes in phase_1 but
+     * setRes() hasn't finalized the archive until syncStageRes is called. */
+    if (dComIfG_syncStageRes("Stg_00") > 0) {
+        return cPhs_INIT_e;  /* Still loading */
+    }
+#endif
+
     u8 particle_no = dStage_stagInfo_GetParticleNo(dComIfGp_getStage()->getStagInfo(),
                                                    dComIfG_play_c::getLayerNo(0));
     if (particle_no == 255) {

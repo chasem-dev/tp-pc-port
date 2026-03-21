@@ -53,7 +53,39 @@ int dRes_info_c::set(char const* i_arcName, char const* i_path, u8 i_mountDirect
         char path[40];
         snprintf(path, sizeof(path), "%s%s.arc", i_path, i_arcName);
         mDMCommand = mDoDvdThd_mountArchive_c::create(path, i_mountDirection, i_heap);
-
+#ifdef TARGET_PC
+        /* On PC, DVD commands execute inline in create(). The command is
+         * already done, so immediately finalize the archive mount.
+         * If we defer to setRes(), the mDMCommand pointer may be reused
+         * by another command (same heap memory recycled). */
+        if (mDMCommand != NULL && mDMCommand->sync()) {
+            mArchive = mDMCommand->getArchive();
+            heap = mDMCommand->getHeap();
+            mDMCommand->destroy();
+            mDMCommand = NULL;
+            if (mArchive != NULL) {
+                if (heap != NULL) {
+                    heap->lock();
+                    mDataHeap = mDoExt_createSolidHeapToCurrent(0, heap, 0x20);
+                    if (mDataHeap) {
+                        loadResource();
+                        mDoExt_restoreCurrentHeap();
+                        mDoExt_adjustSolidHeap(mDataHeap);
+                    }
+                    heap->unlock();
+                } else {
+                    mDataHeap = mDoExt_createSolidHeapFromGameToCurrent(0, 0);
+                    if (mDataHeap) {
+                        loadResource();
+                        mDoExt_restoreCurrentHeap();
+                        mDoExt_adjustSolidHeap(mDataHeap);
+                    }
+                }
+            }
+            strncpy(mArchiveName, i_arcName, sizeof(mArchiveName) - 1);
+            return true;
+        }
+#endif
         if (mDMCommand == NULL) {
             return false;
         }
@@ -580,9 +612,17 @@ bool data_8074C6C0_debug;
 int dRes_info_c::setRes() {
     if (mArchive == NULL) {
         if (mDMCommand == NULL) {
+#ifdef TARGET_PC
+            static int s_setres_log = 0;
+            if (s_setres_log++ < 5) fprintf(stderr, "[RES] setRes('%s'): mDMCommand is NULL, mArchive is NULL\n", mArchiveName);
+#endif
             return -1;
         }
         if (mDMCommand->sync() == 0) {
+#ifdef TARGET_PC
+            static int s_sync_log = 0;
+            if (s_sync_log++ < 5) fprintf(stderr, "[RES] setRes('%s'): sync() returned 0 (not done)\n", mArchiveName);
+#endif
             return 1;
         }
 
@@ -843,15 +883,29 @@ int dRes_control_c::deleteRes(char const* i_arcName, dRes_info_c* i_resInfo, int
 }
 
 dRes_info_c* dRes_control_c::getResInfo(char const* i_arcName, dRes_info_c* i_resInfo, int i_infoNum) {
+#ifdef TARGET_PC
+    static int s_getinfo_log = 0;
+    bool isStage = true; /* log all lookups for now */
+#endif
     for (int i = 0; i < i_infoNum; i++) {
         if (i_resInfo->getCount() != 0) {
             if (!stricmp(i_arcName, i_resInfo->getArchiveName())) {
                 return i_resInfo;
             }
+#ifdef TARGET_PC
+            if (isStage && s_getinfo_log < 3) {
+                fprintf(stderr, "[RES] getResInfo('%s'): slot[%d] has '%s' (count=%d arc=%p) — no match\n",
+                        i_arcName, i, i_resInfo->getArchiveName(), i_resInfo->getCount(), (void*)i_resInfo->getArchive());
+            }
+#endif
         }
         i_resInfo++;
     }
-
+#ifdef TARGET_PC
+    if (isStage && s_getinfo_log++ < 10) {
+        fprintf(stderr, "[RES] getResInfo('%s'): NOT FOUND in %d slots (checked %d non-empty)\n", i_arcName, i_infoNum, s_getinfo_log);
+    }
+#endif
     return NULL;
 }
 
@@ -1018,6 +1072,10 @@ int dRes_control_c::setStageRes(char const* i_arcName, JKRHeap* i_heap) {
     char path[20];
 
     snprintf(path, sizeof(path), "/res/Stage/%s/", dComIfGp_getStartStageName());
+#ifdef TARGET_PC
+    fprintf(stderr, "[RES] setStageRes('%s'): path='%s' startStage='%s'\n",
+            i_arcName, path, dComIfGp_getStartStageName());
+#endif
     return setRes(i_arcName, mStageInfo, ARRAY_SIZEU(mStageInfo), path, mDoDvd_MOUNT_DIRECTION_TAIL, i_heap);
 }
 
