@@ -2,6 +2,9 @@
 #include "pc_platform.h"
 #include <time.h>
 #include <pthread.h>
+#if defined(__APPLE__) || defined(__linux__)
+#include <sys/mman.h>
+#endif
 #include <dolphin/os/OSContext.h>
 #include <dolphin/os/OSThread.h>
 #include <dolphin/os/OSMessage.h>
@@ -26,7 +29,22 @@ void* OSAllocFromArenaLo(u32 size, u32 align) {
 }
 
 void pc_os_init_arena(void) {
+    if (arena_memory) {
+        /* Already allocated (called from both pc_main and OSInit) — skip */
+        return;
+    }
+#if defined(__APPLE__) || defined(__linux__)
+    /* Use mmap instead of malloc — large malloc allocations can interfere
+     * with QuartzCore/Metal memory management on macOS */
+    arena_memory = (u8*)mmap(NULL, PC_MAIN_MEMORY_SIZE,
+                             PROT_READ | PROT_WRITE,
+                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (arena_memory == MAP_FAILED) {
+        arena_memory = NULL;
+    }
+#else
     arena_memory = (u8*)malloc(PC_MAIN_MEMORY_SIZE);
+#endif
     if (!arena_memory) {
         fprintf(stderr, "Failed to allocate %d MB arena\n", PC_MAIN_MEMORY_SIZE / (1024*1024));
         exit(1);
@@ -125,6 +143,51 @@ static pthread_mutex_t pc_thread_table_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 /* Dummy OSThread for the main thread */
 static OSThread pc_main_thread;
+static thread_local OSThread* pc_tls_current_thread = NULL;
+
+static void pc_thread_init_record(OSThread* thread, void* stack, u32 stackSize, s32 priority, u16 attr) {
+    if (!thread) return;
+
+    memset(thread, 0, sizeof(OSThread));
+    thread->state = OS_THREAD_STATE_READY;
+    thread->attr = attr & OS_THREAD_ATTR_DETACH;
+    thread->suspend = 1;
+    thread->priority = priority;
+    thread->base = priority;
+    thread->queue = NULL;
+    OSInitThreadQueue(&thread->queueJoin);
+    thread->stackBase = (u8*)stack;
+    if (stack != NULL && stackSize >= sizeof(u32)) {
+        thread->stackEnd = (u32*)((u8*)stack - stackSize);
+        *(u32*)thread->stackEnd = OS_THREAD_STACK_MAGIC;
+    } else {
+        thread->stackEnd = NULL;
+    }
+    for (int i = 0; i < OS_THREAD_SPECIFIC_MAX; i++) {
+        thread->specific[i] = NULL;
+    }
+}
+
+static void pc_thread_init_main_record(void) {
+    if (pc_main_thread.state != 0) {
+        return;
+    }
+
+    memset(&pc_main_thread, 0, sizeof(pc_main_thread));
+    pc_main_thread.state = OS_THREAD_STATE_RUNNING;
+    pc_main_thread.attr = OS_THREAD_ATTR_DETACH;
+    pc_main_thread.suspend = 0;
+    pc_main_thread.priority = 16;
+    pc_main_thread.base = 16;
+    OSInitThreadQueue(&pc_main_thread.queueJoin);
+
+    /* Approximate a stack range around the current SP for debug checks. */
+    u32 sp_marker = 0;
+    uintptr_t sp = (uintptr_t)&sp_marker;
+    pc_main_thread.stackBase = (u8*)(sp + 0x10000);
+    pc_main_thread.stackEnd = (u32*)(sp - 0x100000);
+    pc_tls_current_thread = &pc_main_thread;
+}
 
 static PCThreadEntry* pc_thread_find(OSThread* t) {
     for (int i = 0; i < PC_MAX_THREADS; i++)
@@ -158,15 +221,25 @@ static void* pc_thread_wrapper(void* arg) {
     PCThreadEntry* entry = sa->entry;
     free(sa);
 
+    pc_tls_current_thread = entry->os_thread;
+    if (entry->os_thread) {
+        entry->os_thread->state = OS_THREAD_STATE_RUNNING;
+        entry->os_thread->suspend = 0;
+    }
+
     func(param);
 
+    if (entry->os_thread) {
+        entry->os_thread->state = OS_THREAD_STATE_MORIBUND;
+        entry->os_thread->suspend = 0;
+    }
     entry->terminated = 1;
     return NULL;
 }
 
 int OSCreateThread(OSThread* thread, OSThreadFunc func, void* param,
                    void* stack, u32 stackSize, s32 priority, u16 attr) {
-    (void)stack; (void)stackSize; (void)priority; (void)attr;
+    pc_thread_init_record(thread, stack, stackSize, priority, attr);
     pthread_mutex_lock(&pc_thread_table_mtx);
     PCThreadEntry* e = pc_thread_alloc(thread);
     if (e) {
@@ -181,17 +254,19 @@ int OSCreateThread(OSThread* thread, OSThreadFunc func, void* param,
 }
 
 s32 OSResumeThread(OSThread* thread) {
+    /* Single-threaded model like AC — don't create real pthreads.
+     * Background pthreads interact with Metal's internal dispatch queues
+     * on macOS ARM64 (M4), causing MemoryPoolDecay thread crashes that
+     * burn 100% of 2 CPU cores in signal handler loops.
+     * Store the function for later inline execution instead. */
     pthread_mutex_lock(&pc_thread_table_mtx);
     PCThreadEntry* e = pc_thread_find(thread);
     if (e && !e->created) {
         e->created = 1;
-        PCThreadStartArg* sa = (PCThreadStartArg*)malloc(sizeof(PCThreadStartArg));
-        sa->func = e->func;
-        sa->param = e->param;
-        sa->entry = e;
-        pthread_create(&e->pthread, NULL, pc_thread_wrapper, sa);
-        pthread_detach(e->pthread);
-        if (g_pc_verbose) fprintf(stderr, "[PC] OSResumeThread %p — launched pthread\n", (void*)thread);
+        if (thread) {
+            thread->suspend = 0;
+            thread->state = OS_THREAD_STATE_READY;
+        }
     }
     pthread_mutex_unlock(&pc_thread_table_mtx);
     return 0;
@@ -199,9 +274,7 @@ s32 OSResumeThread(OSThread* thread) {
 
 s32 OSSuspendThread(OSThread* thread) {
     (void)thread;
-    /* On GC, OSSuspendThread suspends the specified thread. If a thread suspends
-     * itself, it blocks until resumed. Approximate with a long sleep. */
-    SDL_Delay(100);
+    /* Single-threaded: no-op (can't actually suspend) */
     return 0;
 }
 void OSCancelThread(OSThread* thread) { (void)thread; }
@@ -223,15 +296,17 @@ int OSIsThreadSuspended(OSThread* thread) {
     return ret;
 }
 
-static thread_local OSThread pc_tls_thread;
 static thread_local int pc_tls_thread_init = 0;
 
 OSThread* OSGetCurrentThread(void) {
+    if (pc_tls_current_thread != NULL) {
+        return pc_tls_current_thread;
+    }
     if (!pc_tls_thread_init) {
-        memset(&pc_tls_thread, 0, sizeof(OSThread));
+        pc_thread_init_main_record();
         pc_tls_thread_init = 1;
     }
-    return &pc_tls_thread;
+    return &pc_main_thread;
 }
 s32 OSGetThreadPriority(OSThread* thread) { (void)thread; return 16; }
 int OSSetThreadPriority(OSThread* thread, s32 priority) { (void)thread; (void)priority; return 0; }
@@ -383,10 +458,8 @@ int OSReceiveMessage(OSMessageQueue* mq, void* msg, s32 flags) {
     if (!e) return 0;
 
     pthread_mutex_lock(&e->mtx);
-    if (flags == OS_MESSAGE_BLOCK) {
-        while (mq->usedCount <= 0)
-            pthread_cond_wait(&e->cond_recv, &e->mtx);
-    } else if (mq->usedCount <= 0) {
+    /* Single-threaded: blocking receive would deadlock. Return 0 if empty. */
+    if (mq->usedCount <= 0) {
         pthread_mutex_unlock(&e->mtx);
         return 0;
     }
@@ -511,6 +584,7 @@ u32 OSGetResetCode(void) { return 0; }
 void OSInit(void) {
     pc_os_init_arena();
     pc_os_init_time();
+    pc_thread_init_main_record();
     printf("[PC] OSInit complete\n");
 }
 
@@ -540,7 +614,10 @@ void OSExitThread(void* val) {
 void OSInitThreadQueue(OSThreadQueue* queue) {
     if (queue) { queue->head = NULL; queue->tail = NULL; }
 }
-u32 OSGetStackPointer(void) { return 0; /* not meaningful on PC */ }
+u32 OSGetStackPointer(void) {
+    u32 sp_marker = 0;
+    return (u32)(uintptr_t)&sp_marker;
+}
 static OSContext pc_dummy_context;
 OSContext* OSGetCurrentContext(void) { return &pc_dummy_context; }
 void OSSetCurrentContext(OSContext* ctx) { (void)ctx; }

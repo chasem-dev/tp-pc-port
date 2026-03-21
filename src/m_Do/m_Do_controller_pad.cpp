@@ -17,7 +17,7 @@ interface_of_controller_pad mDoCPd_c::m_cpadInfo[4];
 interface_of_controller_pad mDoCPd_c::m_debugCpadInfo[4];
 
 void mDoCPd_c::create() {
-    #if PLATFORM_GCN || PLATFORM_SHIELD
+    #if PLATFORM_GCN || PLATFORM_SHIELD || defined(TARGET_PC)
     m_gamePad[0] = new JUTGamePad(JUTGamePad::EPort1);
     #endif
 

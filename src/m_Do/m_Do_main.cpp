@@ -4,6 +4,17 @@
  */
 
 #include "m_Do/m_Do_main.h"
+#ifdef TARGET_PC
+#ifdef __APPLE__
+#include <mach/mach_time.h>
+#endif
+extern "C" u32 SDL_GetTicks(void);
+extern "C" void SDL_Delay(u32);
+extern "C" u64 SDL_GetPerformanceCounter(void);
+extern "C" u64 SDL_GetPerformanceFrequency(void);
+extern "C" void pc_platform_poll_events_only(void);
+extern "C" void pc_platform_pump_events_safe(void);
+#endif
 #include "DynamicLink.h"
 #include "JSystem/JAudio2/JASAudioThread.h"
 #include "JSystem/JAudio2/JAUSoundTable.h"
@@ -42,10 +53,8 @@
 #ifdef TARGET_PC
 extern "C" {
     extern int g_pc_running;
-    extern void* g_pc_window;
-    int pc_platform_poll_events(void);
-    void pc_platform_swap_buffers(void);
     void VIEnableSwap(void);
+    void pc_platform_begin_frame(void);
 }
 #endif
 
@@ -776,12 +785,11 @@ void main01(void) {
         frame++;
 
 #ifdef TARGET_PC
+        pc_platform_begin_frame();
         if (frame <= 3)
             fprintf(stderr, "[PC] frame %u: start\n", frame);
-        if (!pc_platform_poll_events() || !g_pc_running)
+        if (!g_pc_running)
             break;
-        if (frame <= 5 || (frame % 60 == 0))
-            fprintf(stderr, "[PC] frame %u: poll done\n", frame);
 #endif
 
         #if DEBUG
@@ -800,6 +808,10 @@ void main01(void) {
 
 #ifdef TARGET_PC
         if (frame <= 5) fprintf(stderr, "[PC] frame %u: mDoCPd_c::read\n", frame);
+        u64 t_loop_start = OSGetTime();
+        /* Pump events at frame start with timeout to avoid CA::Transaction
+         * deadlock with spinning QuartzCore background threads. */
+        pc_platform_pump_events_safe();
 #endif
         mDoCPd_c::read();   // read controller input
 
@@ -810,9 +822,13 @@ void main01(void) {
         #endif
 
 #ifdef TARGET_PC
-        if (frame <= 5) fprintf(stderr, "[PC] frame %u: fapGm_Execute\n", frame);
+        /* Profile game logic vs swap */
+        u64 t_exec_start = OSGetTime();
 #endif
         fapGm_Execute();    // handle game execution
+#ifdef TARGET_PC
+        u64 t_exec_end = OSGetTime();
+#endif
 
         #if DEBUG
         if (mDoMch::GXWarningExecuteFrame) {
@@ -826,8 +842,13 @@ void main01(void) {
         #endif
 
 #ifdef TARGET_PC
-        /* Swap buffers after game processing */
-        pc_platform_swap_buffers();
+        if (frame % 30 == 0) {
+            u64 t_now = OSGetTime();
+            u32 exec_ms = (u32)OS_TICKS_TO_MSEC(t_exec_end - t_exec_start);
+            u32 total_ms = (u32)OS_TICKS_TO_MSEC(t_now - t_loop_start);
+            fprintf(stderr, "[PC] frame %u: exec=%u total=%ums\n",
+                    frame, exec_ms, total_ms);
+        }
 
         /* Audio system not yet ported — skip to prevent JAudio2 crashes */
 #else
@@ -840,11 +861,20 @@ void main01(void) {
         #endif
 
 #ifdef TARGET_PC
-        if (frame <= 5) fprintf(stderr, "[PC] frame %u: debug\n", frame);
+        if (frame <= 5 || (frame >= 6 && frame <= 10)) fprintf(stderr, "[PC] frame %u: debug\n", frame);
 #endif
         debug();            // run debugger
 #ifdef TARGET_PC
-        if (frame <= 5 || frame % 30 == 0) fprintf(stderr, "[PC] frame %u done\n", frame);
+        if (frame % 60 == 0) {
+            static u64 s_start_time = 0;
+            u64 now = OSGetTime();
+            if (!s_start_time) s_start_time = now;
+            u32 elapsed_ms = (u32)(OS_TICKS_TO_MSEC(now - s_start_time));
+            fprintf(stderr, "[PC] frame %u — %u ms elapsed (%.1f fps)\n",
+                    frame, elapsed_ms, frame * 1000.0f / (elapsed_ms ? elapsed_ms : 1));
+        }
+
+        /* No frame pacing — check window title for real FPS */
 #endif
     } while (true);
 }

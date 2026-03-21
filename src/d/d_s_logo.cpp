@@ -6,6 +6,10 @@
 #include "d/dolzel.h" // IWYU pragma: keep
 
 #include "d/d_s_logo.h"
+#ifdef TARGET_PC
+extern "C" void pc_platform_poll_events_only(void);
+extern "C" void pc_platform_swap_buffers(void);
+#endif
 #include "JSystem/JKernel/JKRAram.h"
 #include "JSystem/JKernel/JKRExpHeap.h"
 #include "JSystem/JKernel/JKRMemArchive.h"
@@ -219,8 +223,13 @@ void dScnLogo_c::checkProgSelect() {
 int dScnLogo_c::draw() {
 #ifdef TARGET_PC
     static int s_draw_count = 0;
+    static int s_last_cmd = -1;
     s_draw_count++;
-    if (s_draw_count % 30 == 1) fprintf(stderr, "[PC] dScnLogo_c::draw() cmd=%d timer=%d (frame %d)\n", mExecCommand, mTimer, s_draw_count);
+    if (s_last_cmd != mExecCommand) {
+        fprintf(stderr, "[PC] dScnLogo_c::draw: state %d timer=%d\n", mExecCommand, mTimer);
+        s_last_cmd = mExecCommand;
+    }
+    if (s_draw_count <= 5 || s_draw_count % 30 == 1) fprintf(stderr, "[PC] dScnLogo_c::draw() cmd=%d timer=%d (frame %d)\n", mExecCommand, mTimer, s_draw_count);
 #endif
     cLib_calcTimer<u16>(&mTimer);
     (this->*l_execFunc[mExecCommand])();
@@ -480,6 +489,9 @@ void dScnLogo_c::warningInDraw() {
         field_0x20e = 30;
         field_0x210 = field_0x20e;
         field_0x212 = 1;
+#ifdef TARGET_PC
+        fprintf(stderr, "[PC] warning screen active: waiting up to 3510 frames or until input (Enter/Space/Escape or pad buttons)\n");
+#endif
     }
 }
 
@@ -505,12 +517,29 @@ void dScnLogo_c::warningDispDraw() {
     #if PLATFORM_WII
     if (mTimer == 0 || cAPICPad_A_TRIGGER(PAD_1) || cAPICPad_B_TRIGGER(PAD_1) || cAPICPad_START_TRIGGER(PAD_1))
     #else
-    if (mTimer == 0 || mDoCPd_c::getTrig(PAD_1) &
-                           (PAD_BUTTON_A | PAD_BUTTON_B | PAD_BUTTON_X | PAD_BUTTON_Y | PAD_BUTTON_START |
-                            PAD_TRIGGER_Z | PAD_TRIGGER_L | PAD_TRIGGER_R | PAD_BUTTON_LEFT |
-                            PAD_BUTTON_RIGHT | PAD_BUTTON_DOWN | PAD_BUTTON_UP))
+    u32 trig = mDoCPd_c::getTrig(PAD_1);
+    u32 hold = mDoCPd_c::getHold(PAD_1);
+    u32 advance_mask = PAD_BUTTON_A | PAD_BUTTON_B | PAD_BUTTON_X | PAD_BUTTON_Y | PAD_BUTTON_START |
+                       PAD_TRIGGER_Z | PAD_TRIGGER_L | PAD_TRIGGER_R | PAD_BUTTON_LEFT |
+                       PAD_BUTTON_RIGHT | PAD_BUTTON_DOWN | PAD_BUTTON_UP;
+#ifdef TARGET_PC
+    {
+        static int s_trig_log = 0;
+        if (s_trig_log++ < 10 || (trig != 0) || (hold != 0 && s_trig_log % 30 == 0)) {
+            fprintf(stderr, "[PC] warningDisp: trig=0x%04x hold=0x%04x timer=%d\n", trig, hold, mTimer);
+        }
+    }
+#endif
+    if (mTimer == 0 || (trig & advance_mask))
     #endif
     {
+#ifdef TARGET_PC
+        if (mTimer != 0) {
+            fprintf(stderr, "[PC] warning screen dismissed by input: trig=0x%04x\n", trig);
+        } else {
+            fprintf(stderr, "[PC] warning screen timer expired\n");
+        }
+#endif
         mExecCommand = EXEC_WARNING_OUT;
         mTimer = 30;
         mDoGph_gInf_c::startFadeOut(30);
@@ -695,6 +724,21 @@ void dScnLogo_c::dvdWaitDraw() {
     dComIfGd_set2DOpa(mStrapImg);
     #endif
 
+#ifdef TARGET_PC
+    /* On PC, all DVD commands were loaded synchronously. Some mounts may have
+     * failed (heap too small), but the commands are all done. Just proceed. */
+    {
+        static int s_dvd_wait_count = 0;
+        s_dvd_wait_count++;
+        if (s_dvd_wait_count == 1) {
+            fprintf(stderr, "[PC] dvdWaitDraw: proceeding to scene change\n");
+        }
+        mDoRst::setLogoScnFlag(0);
+        mExecCommand = EXEC_SCENE_CHANGE;
+    }
+    return;
+#endif
+
     if (!dComIfG_syncAllObjectRes()) {
         if (
             #if PLATFORM_WII || VERSION == VERSION_SHIELD
@@ -748,6 +792,16 @@ void dScnLogo_c::dvdWaitDraw() {
 }
 
 void dScnLogo_c::nextSceneChange() {
+#ifdef TARGET_PC
+    static bool s_scene_change_requested = false;
+    if (!s_scene_change_requested) {
+        s_scene_change_requested = true;
+        fprintf(stderr, "[PC] nextSceneChange: requesting opening scene (isReset=%d isOpeningCut=%d)\n",
+                mDoRst::isReset(), isOpeningCut());
+    } else {
+        return; /* Already requested — don't spam scene change requests */
+    }
+#endif
     if (!mDoRst::isReset()) {
         if (!isOpeningCut())
         {
@@ -1100,7 +1154,44 @@ int dScnLogo_c::create() {
 
     OS_REPORT("\x1b[31m%d gameHeap->getFreeSize %08x(%d)\n\x1b[m", 1732, mDoExt_getGameHeap()->getFreeSize(), mDoExt_getGameHeap()->getFreeSize());
 
+#ifdef TARGET_PC
+    /* On PC, load all resources synchronously during logo creation.
+     * The DVD thread processes async mounts, but heap mutex contention
+     * between threads makes the logo animation stutter at ~1fps.
+     * Instead: queue everything, then spin-wait for completion. */
+    fprintf(stderr, "[PC] logo create: calling dvdDataLoad...\n");
     dvdDataLoad();
+    fprintf(stderr, "[PC] logo create: dvdDataLoad queued, waiting for loads...\n");
+    /* Wait for DVD thread to finish loading while keeping the window responsive.
+     * Pump SDL events during wait to prevent macOS beachball. */
+    /* Wait for key DVD commands to finish while keeping window responsive */
+    {
+        int wait_frames = 0;
+        while (true) {
+            /* Check only the DVD mount commands, not full resource sync */
+            bool all_cmds_done = true;
+            if (mpField0Command && !mpField0Command->sync()) all_cmds_done = false;
+            if (mpAlAnmCommand && !mpAlAnmCommand->sync()) all_cmds_done = false;
+            if (mpBmgResCommand && !mpBmgResCommand->sync()) all_cmds_done = false;
+            if (mParticleCommand && !mParticleCommand->sync()) all_cmds_done = false;
+            if (mItemTableCommand && !mItemTableCommand->sync()) all_cmds_done = false;
+            if (mEnemyItemCommand && !mEnemyItemCommand->sync()) all_cmds_done = false;
+            if (mpFontResCommand && !mpFontResCommand->sync()) all_cmds_done = false;
+            if (mpMain2DCommand && !mpMain2DCommand->sync()) all_cmds_done = false;
+            if (all_cmds_done) break;
+            pc_platform_poll_events_only();
+            pc_platform_swap_buffers();
+            wait_frames++;
+            if (wait_frames > 300) { /* 5s timeout */
+                fprintf(stderr, "[PC] logo create: load timeout after %d frames\n", wait_frames);
+                break;
+            }
+        }
+        fprintf(stderr, "[PC] logo create: DVD commands done (%d wait frames)\n", wait_frames);
+    }
+#else
+    dvdDataLoad();
+#endif
 
     OS_REPORT("\x1b[31m%d gameHeap->getFreeSize %08x(%d)\n\x1b[m", 1738, mDoExt_getGameHeap()->getFreeSize(), mDoExt_getGameHeap()->getFreeSize());
 
@@ -1127,14 +1218,17 @@ int dScnLogo_c::create() {
     mDoGph_gInf_c::startFadeIn(30);
 
     #if !(PLATFORM_WII || PLATFORM_SHIELD)
+    checkProgSelect();
 #ifdef TARGET_PC
-    /* Skip warning/disclaimer — go straight to Nintendo logo */
-    mTimer = 0;
-    mExecCommand = EXEC_NINTENDO_IN;
-    fprintf(stderr, "[PC] logo: starting at NINTENDO_IN\n");
+    /* Skip all logo screens on PC — go straight to game.
+     * macOS Metal/QuartzCore bug limits rendering to ~60 frames before the
+     * CA::Fence::Observer thread crashes, which isn't enough for all logos. */
+    mExecCommand = EXEC_DVD_WAIT;
+    mTimer = 1;
+    mDoRst::setWarningDispFlag(1);
+    mDoRst::setProgSeqFlag(1);
     {
 #else
-    checkProgSelect();
     if (field_0x20a != 0) {
         mExecCommand = EXEC_PROG_IN;
         mTimer = 30;
@@ -1147,8 +1241,8 @@ int dScnLogo_c::create() {
             mTimer = 120;
             mExecCommand = EXEC_WARNING_IN;
         }
-#endif
         mDoRst::setProgSeqFlag(1);
+#endif
     }
 
     JUTGamePad::clearResetOccurred();

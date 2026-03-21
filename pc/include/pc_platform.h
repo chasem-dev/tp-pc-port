@@ -26,10 +26,11 @@
 #define PC_WINDOW_TITLE   "Twilight Princess"
 
 #if UINTPTR_MAX > 0xFFFFFFFFu
-/* 64-bit: structs with pointer fields are larger, need more arena space */
-#define PC_MAIN_MEMORY_SIZE   (96 * 1024 * 1024)
+/* 64-bit: structs with pointer fields are larger, need more arena space.
+ * Also need extra room since ARAM archives are loaded into main memory. */
+#define PC_MAIN_MEMORY_SIZE   (256 * 1024 * 1024)
 #else
-#define PC_MAIN_MEMORY_SIZE   (48 * 1024 * 1024)
+#define PC_MAIN_MEMORY_SIZE   (128 * 1024 * 1024)
 #endif
 #define PC_ARAM_SIZE          (16 * 1024 * 1024)
 #define PC_FIFO_SIZE          (256 * 1024)
@@ -85,6 +86,12 @@ void pc_platform_init(void);
 void pc_platform_shutdown(void);
 void pc_platform_swap_buffers(void);
 int  pc_platform_poll_events(void);
+void pc_platform_begin_frame(void);
+int  pc_platform_is_main_thread(void);
+int  pc_platform_is_gl_thread(void);
+int  pc_platform_is_render_thread(void);
+void pc_platform_mark_render_thread(void);
+void pc_platform_ensure_gl_context_current(void);
 
 /* --- Crash protection --- */
 void pc_crash_protection_init(void);
@@ -106,6 +113,7 @@ _Static_assert(sizeof(uintptr_t) == sizeof(void*), "uintptr_t must match pointer
 void pc_audio_shutdown(void);
 
 /* --- Disc I/O --- */
+void pc_disc_set_path(const char* path);
 void pc_disc_init(void);
 void pc_disc_shutdown(void);
 
