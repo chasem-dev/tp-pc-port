@@ -489,14 +489,30 @@ bool JKRHeap::isSubHeap(JKRHeap* heap) const {
 
 void* operator new(size_t size) {
 #ifdef TARGET_PC
-    if (!JKRHeap::sRootHeap) return malloc(size);
+    if (!JKRHeap::sRootHeap || !JKRHeap::sCurrentHeap) {
+        static int s_fallback_count = 0;
+        if (s_fallback_count++ < 5) {
+            fprintf(stderr, "[HEAP] operator new fallback to malloc (root=%p current=%p size=%zu)\n",
+                    (void*)JKRHeap::sRootHeap, (void*)JKRHeap::sCurrentHeap, size);
+        }
+        return malloc(size);
+    }
+    void* p = JKRHeap::alloc(size, 4, NULL);
+    if (!p) {
+        fprintf(stderr, "[HEAP] JKRHeap::alloc returned NULL, falling back to malloc (size=%zu)\n", size);
+        p = malloc(size);
+    }
+    return p;
 #endif
     return JKRHeap::alloc(size, 4, NULL);
 }
 
 void* operator new(size_t size, int alignment) {
 #ifdef TARGET_PC
-    if (!JKRHeap::sRootHeap) return malloc(size);
+    if (!JKRHeap::sRootHeap || !JKRHeap::sCurrentHeap) return malloc(size);
+    void* p = JKRHeap::alloc(size, alignment, NULL);
+    if (!p) p = malloc(size);
+    return p;
 #endif
     return JKRHeap::alloc(size, alignment, NULL);
 }
@@ -507,14 +523,20 @@ void* operator new(size_t size, JKRHeap* heap, int alignment) {
 
 void* operator new[](size_t size) {
 #ifdef TARGET_PC
-    if (!JKRHeap::sRootHeap) return malloc(size);
+    if (!JKRHeap::sRootHeap || !JKRHeap::sCurrentHeap) return malloc(size);
+    void* p = JKRHeap::alloc(size, 4, NULL);
+    if (!p) p = malloc(size);
+    return p;
 #endif
     return JKRHeap::alloc(size, 4, NULL);
 }
 
 void* operator new[](size_t size, int alignment) {
 #ifdef TARGET_PC
-    if (!JKRHeap::sRootHeap) return malloc(size);
+    if (!JKRHeap::sRootHeap || !JKRHeap::sCurrentHeap) return malloc(size);
+    void* p = JKRHeap::alloc(size, alignment, NULL);
+    if (!p) p = malloc(size);
+    return p;
 #endif
     return JKRHeap::alloc(size, alignment, NULL);
 }
