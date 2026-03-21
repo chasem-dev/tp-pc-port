@@ -1219,10 +1219,7 @@ int dScnLogo_c::create() {
 
     #if !(PLATFORM_WII || PLATFORM_SHIELD)
     checkProgSelect();
-#ifdef TARGET_PC
-    /* Skip all logo screens on PC — go straight to game.
-     * macOS Metal/QuartzCore bug limits rendering to ~60 frames before the
-     * CA::Fence::Observer thread crashes, which isn't enough for all logos. */
+#if 0 /* Logo skip — re-enable if needed */
     mExecCommand = EXEC_DVD_WAIT;
     mTimer = 1;
     mDoRst::setWarningDispFlag(1);
