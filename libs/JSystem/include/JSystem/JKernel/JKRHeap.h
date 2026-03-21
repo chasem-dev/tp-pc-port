@@ -190,11 +190,11 @@ public:
     static JKRHeap* sRootHeap2;
 
     static JKRHeap* sSystemHeap;
-#ifdef TARGET_PC
-    static thread_local JKRHeap* sCurrentHeap;
-#else
+    /* NOT thread_local — TLS infrastructure (__thread_vars section) on macOS
+     * ARM64 interferes with QuartzCore's CA::Fence::Observer background thread,
+     * causing crashes in __hash_table::__rehash. AC port works without TLS.
+     * operator new/delete already falls back to malloc when sCurrentHeap is NULL. */
     static JKRHeap* sCurrentHeap;
-#endif
 
     static JKRErrorHandler mErrorHandler;
 };

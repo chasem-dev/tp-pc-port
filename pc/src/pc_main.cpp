@@ -118,10 +118,8 @@ static void pc_signal_handler(int sig, siginfo_t* info, void* ucontext) {
         pc_active_jmpbuf = NULL;
         longjmp(*buf, 1);
     }
-    /* Background thread crash — absorb by returning. */
-    if (!g_pc_main_pthread_valid || !pthread_equal(pthread_self(), g_pc_main_pthread)) {
-        return;
-    }
+    /* No BG crash absorption — VI callback fix prevents the Metal crash.
+     * Let BG crashes be fatal (matches AC). */
     signal(sig, SIG_DFL);
     raise(sig);
 }
@@ -314,8 +312,23 @@ extern "C" void pc_platform_begin_frame(void) {
 }
 
 extern "C" void pc_platform_pump_events_safe(void) {
-    /* No-op on macOS — SDL event pump triggers CA::Fence crash.
-     * Keyboard input via CGEventSourceKeyState in PADRead. */
+    /* Pump events — safe now that we don't call VI pre/post retrace
+     * callbacks (which interleaved GL ops with Cocoa event processing). */
+    if (!g_pc_window) return;
+    SDL_Event ev;
+    while (SDL_PollEvent(&ev)) {
+        switch (ev.type) {
+            case SDL_QUIT: g_pc_running = 0; break;
+            case SDL_WINDOWEVENT:
+                if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
+                    pc_platform_update_window_size();
+                break;
+            case SDL_KEYDOWN:
+                if (ev.key.keysym.sym == SDLK_ESCAPE) g_pc_running = 0;
+                if (ev.key.keysym.sym == SDLK_F3 && !ev.key.repeat) g_pc_no_framelimit ^= 1;
+                break;
+        }
+    }
 }
 
 extern "C" void pc_platform_poll_events_only(void) {

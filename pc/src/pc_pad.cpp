@@ -1,11 +1,38 @@
 /* pc_pad.cpp - Controller pad stubs */
 #include "pc_platform.h"
-#ifdef __APPLE__
+#if defined(__APPLE__) && defined(__clang__)
 #include <Carbon/Carbon.h>  /* for kVK_ key codes */
 #include <CoreGraphics/CoreGraphics.h>  /* for CGEventSourceKeyState */
 
 static bool pc_key_down(int keyCode) {
     return CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, (CGKeyCode)keyCode);
+}
+#elif defined(__APPLE__)
+/* GCC can't parse Apple's block syntax in CG headers.
+ * Use dlsym to call CGEventSourceKeyState at runtime. */
+#include <dlfcn.h>
+typedef int CGKeyCode;
+typedef uint32_t CGEventSourceStateID;
+enum { kCGEventSourceStateCombinedSessionState = 1 };
+/* macOS virtual key codes (from Carbon/HIToolbox/Events.h) */
+enum {
+    kVK_Return = 0x24, kVK_Space = 0x31, kVK_Delete = 0x33,
+    kVK_Escape = 0x35, kVK_Tab = 0x30, kVK_Shift = 0x38,
+    kVK_RightShift = 0x3C,
+    kVK_ANSI_A = 0x00, kVK_ANSI_S = 0x01, kVK_ANSI_D = 0x02,
+    kVK_ANSI_W = 0x0D, kVK_ANSI_X = 0x07, kVK_ANSI_Z = 0x06,
+    kVK_ANSI_C = 0x08,
+    kVK_UpArrow = 0x7E, kVK_DownArrow = 0x7D,
+    kVK_LeftArrow = 0x7B, kVK_RightArrow = 0x7C
+};
+typedef bool (*CGEventSourceKeyState_t)(CGEventSourceStateID, CGKeyCode);
+static CGEventSourceKeyState_t s_CGEventSourceKeyState = NULL;
+static bool pc_key_down(int keyCode) {
+    if (!s_CGEventSourceKeyState) {
+        void* cg = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY);
+        if (cg) s_CGEventSourceKeyState = (CGEventSourceKeyState_t)dlsym(cg, "CGEventSourceKeyState");
+    }
+    return s_CGEventSourceKeyState ? s_CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, (CGKeyCode)keyCode) : false;
 }
 #endif
 

@@ -75,16 +75,15 @@ void VIWaitForRetrace(void) {
 
     u32 next_retrace = retrace_count + 1;
 
+    /* AC port does NOT call pre/post retrace callbacks here.
+     * Calling them interleaves GL operations (GXCopyDisp, GXFlush)
+     * with Cocoa event processing (SDL_PollEvent), which triggers
+     * the CA::Fence::Observer crash on macOS ARM64. */
+#ifndef TARGET_PC
     if (vi_pre_callback != NULL) {
-        if (g_pc_verbose && next_retrace <= 8) {
-            fprintf(stderr, "[VI] pre-callback #%u (black=%d next_fb=%p)\n",
-                    next_retrace, vi_black, vi_next_frame_buffer);
-        }
         vi_pre_callback(next_retrace);
-        if (g_pc_verbose && next_retrace <= 8) {
-            fprintf(stderr, "[VI] pre-callback #%u returned OK\n", next_retrace);
-        }
     }
+#endif
 
     u64 vi_enter = SDL_GetPerformanceCounter();
     u64 frame_ms = 0;
@@ -141,12 +140,11 @@ void VIWaitForRetrace(void) {
         SDL_UnlockMutex(retrace_mutex);
     }
 
+#ifndef TARGET_PC
     if (vi_post_callback != NULL) {
-        if (g_pc_verbose && retrace_count <= 8) {
-            fprintf(stderr, "[VI] post-callback #%u\n", retrace_count);
-        }
         vi_post_callback(retrace_count);
     }
+#endif
 }
 
 u32 VIGetRetraceCount(void) { return retrace_count; }

@@ -21,11 +21,7 @@ bool JKRHeap::sDefaultFillFlag = true;
 
 JKRHeap* JKRHeap::sSystemHeap;
 
-#ifdef TARGET_PC
-thread_local JKRHeap* JKRHeap::sCurrentHeap;
-#else
 JKRHeap* JKRHeap::sCurrentHeap;
-#endif
 
 JKRHeap* JKRHeap::sRootHeap;
 

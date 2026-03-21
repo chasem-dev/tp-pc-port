@@ -161,10 +161,11 @@ set(PC_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_misc.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_stubs.cpp
 )
-# macOS Objective-C file for NSApplication setup
-if(APPLE)
-    list(APPEND PC_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_macos.m)
-endif()
+# Disabled: pc_macos.m pulls in ObjC runtime + AppKit which may cause
+# QuartzCore CA::Fence crashes. AC port works without any ObjC code.
+# if(APPLE)
+#     list(APPEND PC_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_macos.m)
+# endif()
 
 # Rename game's main() to tp_main_entry() to avoid conflict with PC main()
 set_source_files_properties(

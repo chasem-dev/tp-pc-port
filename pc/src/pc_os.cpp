@@ -143,7 +143,7 @@ static pthread_mutex_t pc_thread_table_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 /* Dummy OSThread for the main thread */
 static OSThread pc_main_thread;
-static thread_local OSThread* pc_tls_current_thread = NULL;
+static OSThread* pc_tls_current_thread = NULL; /* NOT thread_local — TLS causes macOS QuartzCore crashes */
 
 static void pc_thread_init_record(OSThread* thread, void* stack, u32 stackSize, s32 priority, u16 attr) {
     if (!thread) return;
@@ -296,7 +296,7 @@ int OSIsThreadSuspended(OSThread* thread) {
     return ret;
 }
 
-static thread_local int pc_tls_thread_init = 0;
+static int pc_tls_thread_init = 0; /* NOT thread_local — TLS causes macOS QuartzCore crashes */
 
 OSThread* OSGetCurrentThread(void) {
     if (pc_tls_current_thread != NULL) {
