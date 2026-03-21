@@ -110,17 +110,42 @@ mDoDvdThd_command_c::~mDoDvdThd_command_c() {
     }
 }
 
+#ifdef TARGET_PC
+static bool s_dvd_param_inited = false;
+#endif
+
 mDoDvdThd_param_c::mDoDvdThd_param_c() {
+#ifdef TARGET_PC
+    /* Defer OSInitMutex/OSInitMessageQueue — creating pthread primitives
+     * during static construction interferes with QuartzCore on macOS ARM64 */
+    memset(&mMessageQueue, 0, sizeof(mMessageQueue));
+    memset(&mMutext, 0, sizeof(mMutext));
+#else
     OSInitMessageQueue(&mMessageQueue, &mMessageQueueMessages, 1);
     OSInitMutex(&mMutext);
+#endif
     cLs_Create(&mNodeList);
 }
 
 void mDoDvdThd_param_c::kick() {
+#ifdef TARGET_PC
+    if (!s_dvd_param_inited) {
+        s_dvd_param_inited = true;
+        OSInitMessageQueue(&mMessageQueue, &mMessageQueueMessages, 1);
+        OSInitMutex(&mMutext);
+    }
+#endif
     OSSendMessage(&mMessageQueue, NULL, OS_MESSAGE_NOBLOCK);
 }
 
 s32 mDoDvdThd_param_c::waitForKick() {
+#ifdef TARGET_PC
+    if (!s_dvd_param_inited) {
+        s_dvd_param_inited = true;
+        OSInitMessageQueue(&mMessageQueue, &mMessageQueueMessages, 1);
+        OSInitMutex(&mMutext);
+    }
+#endif
     return OSReceiveMessage(&mMessageQueue, NULL, OS_MESSAGE_BLOCK);
 }
 
@@ -129,10 +154,19 @@ mDoDvdThd_command_c* mDoDvdThd_param_c::getFirstCommand() {
 }
 
 void mDoDvdThd_param_c::addition(mDoDvdThd_command_c* pCommand) {
+#ifdef TARGET_PC
+    /* Single-threaded: execute DVD command inline on the calling thread.
+     * The DVD thread isn't running (no pthreads — avoids Metal driver crashes). */
+    s32 result = pCommand->execute();
+    if (result != 1) {
+        OSReport_Error("mDoDvdThd inline execute failed\n");
+    }
+#else
     OSLockMutex(&mMutext);
     cLs_Addition(&mNodeList, pCommand);
     OSUnlockMutex(&mMutext);
     this->kick();
+#endif
 }
 
 void mDoDvdThd_param_c::cut(mDoDvdThd_command_c* param_0) {
@@ -152,14 +186,28 @@ static void cb(void* param_0) {
 
 void mDoDvdThd_param_c::mainLoop() {
     mDoDvdThd_command_c* command;
+    static int s_kick_count = 0;
     while (this->waitForKick() != 0) {
+        s_kick_count++;
+        int cmd_count = 0;
         while ((command = this->getFirstCommand())) {
+            cmd_count++;
             this->cut(command);
             if (mDoDvdThd::SyncWidthSound) {
                 JASDvd::getThreadPointer()->sendCmdMsg(cb, &command, 4);
             } else {
                 cb(&command);
             }
+        }
+        /* Re-kick if more commands arrived while we were processing.
+         * The message queue only holds 1 message, so rapid addition() calls
+         * can drop kicks. After processing all current commands, check if
+         * more were added and self-kick to process them. */
+        if (this->getFirstCommand()) {
+            this->kick();
+        }
+        if (s_kick_count <= 20) {
+            fprintf(stderr, "[DVD-THD] kick #%d: processed %d commands\n", s_kick_count, cmd_count);
         }
     }
 }
@@ -390,6 +438,14 @@ s32 mDoDvdThd_mountXArchive_c::execute() {
     JKRArchive::EMountDirection mountDirection =
         mMountDirection == 0 ? JKRArchive::MOUNT_DIRECTION_HEAD : JKRArchive::MOUNT_DIRECTION_TAIL;
     JKRHeap* heap = mHeap != NULL ? mHeap : mDoExt_getArchiveHeap();
+#ifdef TARGET_PC
+    /* On PC, ARAM mounts are redirected to MEM. Use the archive heap since
+     * ARAM was a separate 16MB memory — small heaps like J2dHeap can't hold
+     * the full archive data that originally went into ARAM. */
+    if (mMountMode == JKRArchive::MOUNT_ARAM) {
+        heap = mDoExt_getArchiveHeap();
+    }
+#endif
     s32 result = 0;
     mArchive = JKRArchive::mount(mEntryNum, mMountMode, heap, mountDirection);
     result = mArchive != NULL;

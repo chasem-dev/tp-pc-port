@@ -18,10 +18,20 @@ JASHeap::JASHeap(JASDisposer* disposer) : mTree(this) {
     mBase = NULL;
     mSize = 0;
     field_0x40 = 0;
+#ifndef TARGET_PC
+    /* On PC, defer OSInitMutex — calling pthread_mutex_init during static
+     * construction interferes with QuartzCore on macOS ARM64. The mutex
+     * will be initialized in initRootHeap/alloc on first use. */
     OSInitMutex(&mMutex);
+#else
+    memset(&mMutex, 0, sizeof(mMutex));
+#endif
 }
 
 void JASHeap::initRootHeap(void* param_0, u32 param_1) {
+#ifdef TARGET_PC
+    OSInitMutex(&mMutex);  /* Deferred from constructor */
+#endif
     JUT_ASSERT(97, ! isAllocated());
     JASMutexLock lock(&mMutex);
     mBase = (u8*)OSRoundUp32B(param_0);
