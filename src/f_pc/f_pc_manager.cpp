@@ -78,12 +78,18 @@ void fpcM_Management(fpcM_ManagementFunc i_preExecuteFn, fpcM_ManagementFunc i_p
             if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] fpcM_Management: cAPIGph_Painter\n");
 #endif
             cAPIGph_Painter();
+#ifdef TARGET_PC
+            if (s_mgmt_frame == 6) fprintf(stderr, "[PC] frame6: painter done\n");
+#endif
 
             if (!dPa_control_c::isStatus(1)) {
                 fpcDt_Handler();
             } else {
                 dPa_control_c::offStatus(1);
             }
+#ifdef TARGET_PC
+            if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] mgmt%d: dt_handler done\n", s_mgmt_frame);
+#endif
 
 #ifdef TARGET_PC
             if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] fpcM_Management: fpcPi_Handler\n");
@@ -91,6 +97,9 @@ void fpcM_Management(fpcM_ManagementFunc i_preExecuteFn, fpcM_ManagementFunc i_p
             if (!fpcPi_Handler()) {
                 JUT_ASSERT(353, FALSE);
             }
+#ifdef TARGET_PC
+            if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] mgmt%d: pi_handler done\n", s_mgmt_frame);
+#endif
 
 #ifdef TARGET_PC
             if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] fpcM_Management: fpcCt_Handler\n");
@@ -98,20 +107,41 @@ void fpcM_Management(fpcM_ManagementFunc i_preExecuteFn, fpcM_ManagementFunc i_p
             if (!fpcCt_Handler()) {
                 JUT_ASSERT(357, FALSE);
             }
+#ifdef TARGET_PC
+            if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] mgmt%d: ct_handler done\n", s_mgmt_frame);
+#endif
 
             if (i_preExecuteFn != NULL) {
                 i_preExecuteFn();
             }
+#ifdef TARGET_PC
+            if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] mgmt%d: preExecute done, calling fpcEx_Handler\n", s_mgmt_frame);
+#endif
 
             if (!fapGm_HIO_c::isCaptureScreen()) {
                 fpcEx_Handler((fpcLnIt_QueueFunc)fpcM_Execute);
             }
+#ifdef TARGET_PC
+            if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] mgmt%d: fpcEx_Handler done\n", s_mgmt_frame);
+#endif
             if (!fapGm_HIO_c::isCaptureScreen() || fapGm_HIO_c::getCaptureScreenDivH() != 1) {
+#ifdef TARGET_PC
+                if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] mgmt%d: calling fpcDw_Handler\n", s_mgmt_frame);
+#endif
                 fpcDw_Handler((fpcDw_HandlerFuncFunc)fpcM_DrawIterater, (fpcDw_HandlerFunc)fpcM_Draw);
+#ifdef TARGET_PC
+                if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] mgmt%d: fpcDw_Handler done\n", s_mgmt_frame);
+#endif
             }
 
             if (i_postExecuteFn != NULL) {
+#ifdef TARGET_PC
+                if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] mgmt%d: calling postExecute\n", s_mgmt_frame);
+#endif
                 i_postExecuteFn();
+#ifdef TARGET_PC
+                if (s_mgmt_frame <= 3) fprintf(stderr, "[PC] mgmt%d: postExecute done\n", s_mgmt_frame);
+#endif
             }
 
             dComIfGp_drawSimpleModel();

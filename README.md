@@ -50,7 +50,9 @@ More information about the project can be found here: <https://zsrtp.link>
 <!--ts-->
 - [Progress](https://zsrtp.link/progress)
 - [Dependencies](#dependencies)
-- [Building](#building)
+- [Building (Decomp)](#building-decomp)
+- [PC Port Build](#pc-port-build)
+- [Running The PC Port](#running-the-pc-port)
 - [Diffing](#diffing)
 - [Contributing](#contributing)
 - [FAQ](https://zsrtp.link/about)
@@ -90,7 +92,7 @@ When running under WSL, [objdiff](#diffing) is unable to get filesystem notifica
 
 [wibo](https://github.com/decompals/wibo), a minimal 32-bit Windows binary wrapper, will be automatically downloaded and used.
 
-## Building
+## Building (Decomp)
 
 - Clone the repository:
 
@@ -114,6 +116,48 @@ When running under WSL, [objdiff](#diffing) is unable to get filesystem notifica
   ```sh
   ninja
   ```
+
+This is the original decomp build flow. It uses the repository root and the generated root-level `build/` directory.
+
+## PC Port Build
+
+This fork also contains an experimental native PC port build under [`pc/`](pc/). Use that build system for the SDL2/OpenGL executable.
+
+Do not use the repository root `build/` directory for the PC port. Standardize on `pc/build` for all CMake output.
+
+- Install PC port dependencies:
+  - macOS: `brew install cmake sdl2`
+  - Linux: install `cmake`, a C++ toolchain, OpenGL development packages, and `libsdl2-dev`
+- Configure the PC build:
+
+  ```sh
+  cmake -S pc -B pc/build
+  ```
+
+- Build the PC executable:
+
+  ```sh
+  cmake --build pc/build --parallel
+  ```
+
+The PC executable will be written to `pc/build/bin/TwilightPrincess`.
+
+## Running The PC Port
+
+Run the PC port from the repository root and pass the disc image explicitly:
+
+```sh
+./pc/build/bin/TwilightPrincess /path/to/GZ2E01.iso
+```
+
+The executable also accepts:
+
+- `--verbose` or `-v` for diagnostic output
+- `--no-framelimit` to disable the frame limiter
+- `--headless` to skip video initialization for boot testing
+- `--disc /path/to/GZ2E01.iso` as an explicit alternative to the positional disc path
+
+If no disc path is provided, the PC build falls back to searching `.`, `rom/`, `orig/`, `build/rom/`, and `../build/rom/` for `.iso`, `.gcm`, or `.ciso` files.
 
 ## Diffing
 

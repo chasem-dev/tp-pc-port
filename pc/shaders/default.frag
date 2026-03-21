@@ -159,8 +159,14 @@ float getTevA(int id, float prev, float tex, float ras,
     return 0.0;                 /* ZERO */
 }
 
+float swizzle(vec4 v, int idx) {
+    if (idx == 0) return v.r;
+    if (idx == 1) return v.g;
+    if (idx == 2) return v.b;
+    return v.a;
+}
 vec4 applySwap(vec4 v, ivec4 sw) {
-    return vec4(v[sw.x], v[sw.y], v[sw.z], v[sw.w]);
+    return vec4(swizzle(v, sw.x), swizzle(v, sw.y), swizzle(v, sw.z), swizzle(v, sw.w));
 }
 
 /* TEV formula: d OP ((1-c)*a + c*b) */
@@ -354,8 +360,8 @@ void main() {
 
     /* TEV stage 0 */
     {
-        vec4 sTex = applySwap(texColor0, u_swap_table[u_tev0_swap.y]);
-        vec4 sRas = applySwap(rasColor,  u_swap_table[u_tev0_swap.x]);
+        vec4 sTex = applySwap(texColor0, u_swap_table[clamp(u_tev0_swap.y, 0, 3)]);
+        vec4 sRas = applySwap(rasColor,  u_swap_table[clamp(u_tev0_swap.x, 0, 3)]);
         vec3 kc0 = getKonstC(u_tev_ksel[0].x);
         float ka0 = getKonstA(u_tev_ksel[0].y);
         vec4 s0 = tevStage(u_tev0_color_in, u_tev0_color_op,
@@ -367,8 +373,8 @@ void main() {
 
     /* TEV stage 1 */
     if (u_num_tev_stages > 1) {
-        vec4 sTex = applySwap(texColor1, u_swap_table[u_tev1_swap.y]);
-        vec4 sRas = applySwap(rasColor,  u_swap_table[u_tev1_swap.x]);
+        vec4 sTex = applySwap(texColor1, u_swap_table[clamp(u_tev1_swap.y, 0, 3)]);
+        vec4 sRas = applySwap(rasColor,  u_swap_table[clamp(u_tev1_swap.x, 0, 3)]);
         vec3 kc1 = getKonstC(u_tev_ksel[1].x);
         float ka1 = getKonstA(u_tev_ksel[1].y);
         vec4 s1 = tevStage(u_tev1_color_in, u_tev1_color_op,
@@ -380,8 +386,8 @@ void main() {
 
     /* TEV stage 2 */
     if (u_num_tev_stages > 2) {
-        vec4 sTex = applySwap(texColor2, u_swap_table[u_tev2_swap.y]);
-        vec4 sRas = applySwap(rasColor,  u_swap_table[u_tev2_swap.x]);
+        vec4 sTex = applySwap(texColor2, u_swap_table[clamp(u_tev2_swap.y, 0, 3)]);
+        vec4 sRas = applySwap(rasColor,  u_swap_table[clamp(u_tev2_swap.x, 0, 3)]);
         vec3 kc2 = getKonstC(u_tev_ksel[2].x);
         float ka2 = getKonstA(u_tev_ksel[2].y);
         vec4 s2 = tevStage(u_tev2_color_in, u_tev2_color_op,

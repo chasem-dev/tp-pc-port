@@ -728,11 +728,11 @@ void fapGm_Execute() {
     #endif
 
 #ifdef TARGET_PC
-    if (s_fapGm_frame <= 3) fprintf(stderr, "[PC] fapGm_Execute: fpcM_Management...\n");
+    if (s_fapGm_frame <= 5) fprintf(stderr, "[PC] fapGm_Execute(%d): fpcM_Management...\n", s_fapGm_frame);
 #endif
     fpcM_Management(NULL, fapGm_After);
 #ifdef TARGET_PC
-    if (s_fapGm_frame <= 3) fprintf(stderr, "[PC] fapGm_Execute: cCt_Counter...\n");
+    if (s_fapGm_frame <= 5) fprintf(stderr, "[PC] fapGm_Execute(%d): fpcM_Management returned\n", s_fapGm_frame);
 #endif
     cCt_Counter(0);
 #ifdef TARGET_PC

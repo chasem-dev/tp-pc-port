@@ -2,6 +2,7 @@
  * Decodes all 10 GC texture formats from tile-based big-endian layout
  * to linear RGBA8 for OpenGL upload. */
 #include "pc_gx_internal.h"
+#include <dolphin/gx/GXEnum.h>
 
 /* ============================================================
  * Texture cache
@@ -14,6 +15,11 @@ typedef struct {
     u32 format;
     u32 tlut_name;
     uintptr_t tlut_ptr;
+    u32 tlut_hash;
+    u32 data_hash;
+    u32 wrap_s;
+    u32 wrap_t;
+    u32 min_filter;
     GLuint gl_tex;
 } TexCacheEntry;
 
@@ -39,7 +45,9 @@ void pc_gx_texture_cache_invalidate(void) {
 }
 
 GLuint pc_gx_texture_cache_lookup(void* data, int width, int height, int format,
-                                   u32 tlut_name, const void* tlut_ptr) {
+                                   u32 tlut_name, const void* tlut_ptr,
+                                   u32 tlut_hash, u32 data_hash,
+                                   u32 wrap_s, u32 wrap_t, u32 min_filter) {
     uintptr_t dp = (uintptr_t)data;
     uintptr_t tp = (uintptr_t)tlut_ptr;
     for (int i = 0; i < s_tex_cache_count; i++) {
@@ -48,7 +56,12 @@ GLuint pc_gx_texture_cache_lookup(void* data, int width, int height, int format,
             s_tex_cache[i].height == height &&
             s_tex_cache[i].format == (u32)format &&
             s_tex_cache[i].tlut_name == tlut_name &&
-            s_tex_cache[i].tlut_ptr == tp) {
+            s_tex_cache[i].tlut_ptr == tp &&
+            s_tex_cache[i].tlut_hash == tlut_hash &&
+            s_tex_cache[i].data_hash == data_hash &&
+            s_tex_cache[i].wrap_s == wrap_s &&
+            s_tex_cache[i].wrap_t == wrap_t &&
+            s_tex_cache[i].min_filter == min_filter) {
             return s_tex_cache[i].gl_tex;
         }
     }
@@ -56,12 +69,22 @@ GLuint pc_gx_texture_cache_lookup(void* data, int width, int height, int format,
 }
 
 void pc_gx_texture_cache_insert(void* data, int width, int height, int format,
-                                 u32 tlut_name, const void* tlut_ptr, GLuint gl_tex) {
+                                 u32 tlut_name, const void* tlut_ptr,
+                                 u32 tlut_hash, u32 data_hash,
+                                 u32 wrap_s, u32 wrap_t, u32 min_filter,
+                                 GLuint gl_tex) {
     if (s_tex_cache_count >= TEX_CACHE_SIZE) {
         /* Evict oldest half */
         int half = TEX_CACHE_SIZE / 2;
         for (int i = 0; i < half; i++) {
-            if (s_tex_cache[i].gl_tex) glDeleteTextures(1, &s_tex_cache[i].gl_tex);
+            if (s_tex_cache[i].gl_tex) {
+                for (int stage = 0; stage < 8; stage++) {
+                    if (g_gx.gl_textures[stage] == s_tex_cache[i].gl_tex) {
+                        g_gx.gl_textures[stage] = 0;
+                    }
+                }
+                glDeleteTextures(1, &s_tex_cache[i].gl_tex);
+            }
         }
         memmove(s_tex_cache, s_tex_cache + half, half * sizeof(TexCacheEntry));
         s_tex_cache_count = half;
@@ -73,7 +96,80 @@ void pc_gx_texture_cache_insert(void* data, int width, int height, int format,
     e->format = format;
     e->tlut_name = tlut_name;
     e->tlut_ptr = (uintptr_t)tlut_ptr;
+    e->tlut_hash = tlut_hash;
+    e->data_hash = data_hash;
+    e->wrap_s = wrap_s;
+    e->wrap_t = wrap_t;
+    e->min_filter = min_filter;
     e->gl_tex = gl_tex;
+}
+
+static int gc_format_bpp(u32 format) {
+    switch (format) {
+        case GX_TF_I4:
+        case GX_TF_C4:
+        case GX_TF_CMPR:
+            return 4;
+        case GX_TF_I8:
+        case GX_TF_IA4:
+        case GX_TF_C8:
+            return 8;
+        case GX_TF_IA8:
+        case GX_TF_RGB565:
+        case GX_TF_RGB5A3:
+        case GX_TF_C14X2:
+            return 16;
+        case GX_TF_RGBA8:
+            return 32;
+        default:
+            return 8;
+    }
+}
+
+static u32 fnv1a_hash(const u8* data, int len, u32 seed = 0x811c9dc5u) {
+    u32 h = seed;
+    for (int i = 0; i < len; i++) {
+        h ^= data[i];
+        h *= 0x01000193u;
+    }
+    return h;
+}
+
+u32 pc_gx_texture_data_hash(const void* data, int width, int height, u32 format) {
+    if (!data || width <= 0 || height <= 0) {
+        return 0;
+    }
+
+    int data_size = (width * height * gc_format_bpp(format)) / 8;
+    if (data_size <= 0) {
+        return 0;
+    }
+
+    const u8* p = static_cast<const u8*>(data);
+    if (data_size <= 512) {
+        return fnv1a_hash(p, data_size);
+    }
+
+    u32 h = fnv1a_hash(p, 256);
+    return fnv1a_hash(p + data_size - 256, 256, h);
+}
+
+u32 pc_gx_tlut_hash(const void* data, int tlut_fmt, int n_entries) {
+    if (!data || n_entries <= 0) {
+        return 0;
+    }
+
+    int bytes = n_entries * 2;
+    if (bytes > 512) {
+        bytes = 512;
+    }
+
+    u32 h = fnv1a_hash(static_cast<const u8*>(data), bytes);
+    h ^= (u32)(tlut_fmt & 0xFF);
+    h *= 0x01000193u;
+    h ^= (u32)(n_entries & 0xFFFF);
+    h *= 0x01000193u;
+    return h;
 }
 
 /* ============================================================
@@ -410,6 +506,9 @@ static void decode_CMPR(const u8* src, u8* dst, int w, int h) {
 GLuint pc_gx_texture_decode_and_upload(void* data, int width, int height, int format,
                                         void* tlut, int tlut_format, int tlut_count) {
     if (!data || width <= 0 || height <= 0) return 0;
+    pc_platform_ensure_gl_context_current();
+
+    /* Large textures (warning screen, logos) are now decoded normally */
 
     int size = width * height * 4;
     u8* pixels = (u8*)malloc(size);
@@ -418,6 +517,18 @@ GLuint pc_gx_texture_decode_and_upload(void* data, int width, int height, int fo
 
     const u8* src = (const u8*)data;
     u8 palette[256][4];
+
+    /* Debug: dump first bytes of source data */
+    {
+        static int s_decode_count = 0;
+        s_decode_count++;
+        if (s_decode_count <= 5 && width > 4) {
+            fprintf(stderr, "[TEX] decode #%d: fmt=%d %dx%d src bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                    s_decode_count, format, width, height,
+                    src[0], src[1], src[2], src[3], src[4], src[5], src[6], src[7],
+                    src[8], src[9], src[10], src[11], src[12], src[13], src[14], src[15]);
+        }
+    }
 
     switch (format) {
         case 0x0: decode_I4(src, pixels, width, height); break;
@@ -458,11 +569,13 @@ GLuint pc_gx_texture_decode_and_upload(void* data, int width, int height, int fo
     GLuint tex;
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glBindTexture(GL_TEXTURE_2D, 0);
     free(pixels);
 
     return tex;

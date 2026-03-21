@@ -2709,7 +2709,13 @@ int dComIfG_resLoader_c::load(char const** i_resNameTbl, JKRHeap* i_heap) {
 }
 
 void* dComIfG_getStageRes(char const* i_resName) {
-    return dComIfG_getStageRes("Stg_00", i_resName);
+    void* res = dComIfG_getStageRes("Stg_00", i_resName);
+#ifdef TARGET_PC
+    if (!res) {
+        fprintf(stderr, "[PC] dComIfG_getStageRes('%s') returned NULL!\n", i_resName);
+    }
+#endif
+    return res;
 }
 
 void* dComIfG_getOldStageRes(char const* i_resName) {

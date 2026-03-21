@@ -30,6 +30,7 @@ typedef struct {
 
 static DiscFile g_disc;
 static int g_disc_open = 0;
+static char g_disc_override_path[512];
 
 static int disc_open(DiscFile* df, const char* path) {
     u8 hdr[CISO_HDR_SIZE];
@@ -147,11 +148,15 @@ static void build_fst_table(DiscFile* df) {
         }
     }
     fprintf(stderr, "[DVD] FST: %d files indexed\n", g_fst_file_count);
+    /* Print first few paths for debugging */
+    for (int i = 0; i < g_fst_file_count && i < 20; i++) {
+        fprintf(stderr, "[DVD] FST[%d]: '%s'\n", i, g_fst_files[i].path);
+    }
 }
 
 /* ---- disc image search ---- */
 static int find_disc_image(char* out_path, int out_sz) {
-    static const char* dirs[] = { ".", "rom", "orig", "../build/rom", NULL };
+    static const char* dirs[] = { ".", "rom", "orig", "build/rom", "../build/rom", NULL };
     for (int d = 0; dirs[d]; d++) {
         DIR* dp = opendir(dirs[d]);
         if (!dp) continue;
@@ -173,6 +178,16 @@ static int find_disc_image(char* out_path, int out_sz) {
         closedir(dp);
     }
     return 0;
+}
+
+void pc_disc_set_path(const char* path) {
+    if (path == NULL || path[0] == '\0') {
+        g_disc_override_path[0] = '\0';
+        return;
+    }
+
+    strncpy(g_disc_override_path, path, sizeof(g_disc_override_path) - 1);
+    g_disc_override_path[sizeof(g_disc_override_path) - 1] = '\0';
 }
 
 /* ---- DVD DiskID ---- */
@@ -263,6 +278,9 @@ int DVDCloseDir(DVDDir* dir) { (void)dir; return 0; }
 
 s32 DVDConvertPathToEntrynum(const char* pathName) {
     int idx = fst_find(pathName);
+    if (idx < 0) {
+        fprintf(stderr, "[DVD] ConvertPathToEntrynum FAIL: '%s'\n", pathName);
+    }
     return idx >= 0 ? idx : -1;
 }
 
@@ -300,10 +318,15 @@ void pc_disc_init(void) {
     char path[512];
     if (g_disc_open) return;
 
-    if (!find_disc_image(path, sizeof(path))) {
-        fprintf(stderr, "[DVD] No disc image found (searched ., rom/, orig/, ../build/rom/)\n");
-        fprintf(stderr, "[DVD] Place a .iso/.gcm/.ciso file in one of these directories\n");
-        return;
+    if (g_disc_override_path[0] != '\0') {
+        strncpy(path, g_disc_override_path, sizeof(path) - 1);
+        path[sizeof(path) - 1] = '\0';
+    } else {
+        if (!find_disc_image(path, sizeof(path))) {
+            fprintf(stderr, "[DVD] No disc image found (searched ., rom/, orig/, build/rom/, ../build/rom/)\n");
+            fprintf(stderr, "[DVD] Pass a disc path on the command line or place a .iso/.gcm/.ciso file in one of these directories\n");
+            return;
+        }
     }
 
     if (!disc_open(&g_disc, path)) {

@@ -1219,7 +1219,8 @@ int dScnLogo_c::create() {
 
     #if !(PLATFORM_WII || PLATFORM_SHIELD)
     checkProgSelect();
-#if 0 /* Logo skip — re-enable if needed */
+#ifdef TARGET_PC
+    /* Skip logos for faster testing — re-enable for release */
     mExecCommand = EXEC_DVD_WAIT;
     mTimer = 1;
     mDoRst::setWarningDispFlag(1);

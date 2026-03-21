@@ -55,7 +55,7 @@ void* JKRDvdRipper::loadToMainRAM(JKRDvdFile* dvdFile, u8* dst, JKRExpandSwitch 
     u8 *mem = NULL;
 
 #ifdef TARGET_PC
-    fprintf(stderr, "[PC] loadToMainRAM: fileSize=%d\n", dvdFile->getFileSize());
+    if (0) fprintf(stderr, "[PC] loadToMainRAM: fileSize=%d\n", dvdFile->getFileSize());
 #endif
     fileSizeAligned = ALIGN_NEXT(dvdFile->getFileSize(), 32);
     if (expandSwitch == EXPAND_SWITCH_UNKNOWN1)
@@ -78,7 +78,7 @@ void* JKRDvdRipper::loadToMainRAM(JKRDvdFile* dvdFile, u8* dst, JKRExpandSwitch 
         compression = JKRCheckCompressed_noASR(bufPtr);
         expandSize = JKRDecompExpandSize(bufPtr);
 #ifdef TARGET_PC
-        fprintf(stderr, "[PC] JKRDvdToMainRam: compression=%d expandSize=%u fileSize=%u\n",
+        if (0) fprintf(stderr, "[PC] JKRDvdToMainRam: compression=%d expandSize=%u fileSize=%u\n",
                 compression, expandSize, fileSizeAligned);
 #endif
     }
@@ -254,7 +254,7 @@ void* JKRDvdRipper::loadToMainRAM(JKRDvdFile* dvdFile, u8* dst, JKRExpandSwitch 
 #ifdef TARGET_PC
         /* On PC, use simple read-all-then-decompress instead of streaming
          * decompression which has buffer management issues on 64-bit. */
-        fprintf(stderr, "[PC] YAZ0 simple: fileSizeAligned=%u expandSize=%u offset=%u\n",
+        if (0) fprintf(stderr, "[PC] YAZ0 simple: fileSizeAligned=%u expandSize=%u offset=%u\n",
                 fileSizeAligned, expandSize, offset);
         u8* compBuf = (u8*)malloc(fileSizeAligned);
         s32 readResult;
@@ -263,7 +263,7 @@ void* JKRDvdRipper::loadToMainRAM(JKRDvdFile* dvdFile, u8* dst, JKRExpandSwitch 
             if (readResult >= 0) break;
             if (readResult == -3 || !errorRetry) { free(compBuf); if (hasAllocated) JKRFree(dst); return NULL; }
         }
-        fprintf(stderr, "[PC] YAZ0 compBuf: %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x\n",
+        if (0) fprintf(stderr, "[PC] YAZ0 compBuf: %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x\n",
                 compBuf[0], compBuf[1], compBuf[2], compBuf[3],
                 compBuf[4], compBuf[5], compBuf[6], compBuf[7],
                 compBuf[8], compBuf[9], compBuf[10], compBuf[11],
@@ -310,7 +310,7 @@ void* JKRDvdRipper::loadToMainRAM(JKRDvdFile* dvdFile, u8* dst, JKRExpandSwitch 
             /* Check non-zero bytes in decompressed output */
             int nz = 0;
             for (u32 i = 0; i < expandSize && i < 306176; i++) if (dst[i]) nz++;
-            fprintf(stderr, "[PC] JKRDvdToMainRam YAZ0: dst=%p expandSize=%u tsPtr=%u nonzero=%d dst[32..35]=%02x%02x%02x%02x dst[544..547]=%02x%02x%02x%02x\n",
+            if (0) fprintf(stderr, "[PC] JKRDvdToMainRam YAZ0: dst=%p expandSize=%u tsPtr=%u nonzero=%d dst[32..35]=%02x%02x%02x%02x dst[544..547]=%02x%02x%02x%02x\n",
                     dst, expandSize, param_8 ? *param_8 : 0, nz,
                     dst[32], dst[33], dst[34], dst[35],
                     expandSize > 547 ? dst[544] : 0, expandSize > 547 ? dst[545] : 0,

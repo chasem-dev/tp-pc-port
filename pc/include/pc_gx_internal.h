@@ -215,6 +215,7 @@ typedef struct {
     GLuint vao;
     GLuint vbo;
     GLuint ebo;
+    GLuint fallback_texture;
     GLuint current_shader;
 
     /* Uniform locations (looked up once per shader change) */
@@ -279,6 +280,7 @@ void pc_gx_cache_uniform_locations(GLuint shader);
 
 /* TEV shader */
 GLuint pc_gx_tev_get_shader(PCGXState* state);
+bool   pc_gx_tev_is_simple_shader(GLuint shader);
 void   pc_gx_tev_init(void);
 void   pc_gx_tev_shutdown(void);
 
@@ -288,10 +290,17 @@ GLuint pc_gx_texture_decode_and_upload(void* data, int width, int height, int fo
 void   pc_gx_texture_init(void);
 void   pc_gx_texture_shutdown(void);
 void   pc_gx_texture_cache_invalidate(void);
+u32    pc_gx_texture_data_hash(const void* data, int width, int height, u32 format);
+u32    pc_gx_tlut_hash(const void* data, int tlut_fmt, int n_entries);
 GLuint pc_gx_texture_cache_lookup(void* data, int width, int height, int format,
-                                  u32 tlut_name, const void* tlut_ptr);
+                                  u32 tlut_name, const void* tlut_ptr,
+                                  u32 tlut_hash, u32 data_hash,
+                                  u32 wrap_s, u32 wrap_t, u32 min_filter);
 void   pc_gx_texture_cache_insert(void* data, int width, int height, int format,
-                                  u32 tlut_name, const void* tlut_ptr, GLuint gl_tex);
+                                  u32 tlut_name, const void* tlut_ptr,
+                                  u32 tlut_hash, u32 data_hash,
+                                  u32 wrap_s, u32 wrap_t, u32 min_filter,
+                                  GLuint gl_tex);
 
 #ifdef __cplusplus
 }

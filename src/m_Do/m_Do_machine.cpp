@@ -803,6 +803,27 @@ int mDoMch_Create() {
     j2dHeapSize -= 0x3E800;
     gameHeapSize -= 0x300000;
     #endif
+
+#ifdef TARGET_PC
+    /* On PC, we have abundant RAM. The GameCube had 24MB total with 16MB ARAM.
+     * We load ARAM archives into main memory, so heaps need to be much larger.
+     * Also reserve enough arena for these larger heaps by reducing sysHeapSize. */
+    archiveHeapSize *= 4;   /* ~36MB (was ~9MB) — holds all game archives */
+    gameHeapSize *= 4;      /* ~17MB (was ~4.3MB) — Always.arc, Alink.arc need this */
+    j2dHeapSize *= 4;       /* ~2MB (was ~500KB) */
+    /* Ensure arena has enough room: reduce the system heap to make space.
+     * arenaSize becomes the system heap; the root heap gets totalArena,
+     * and sub-heaps + system heap must fit within it. */
+    u32 subHeapTotal = archiveHeapSize + gameHeapSize + j2dHeapSize
+                     + commandHeapSize + dynamicLinkHeapSize + dbPrintHeapSize
+                     + 0x100000; /* 1MB headroom for overhead/alignment */
+    if (arenaSize > subHeapTotal + 0x1000000) {
+        arenaSize -= subHeapTotal;  /* Give the rest to system heap */
+    }
+    fprintf(stderr, "[PC] Heap sizes: archive=%uMB game=%uMB j2d=%uKB sysHeap=%uMB\n",
+            archiveHeapSize / (1024*1024), gameHeapSize / (1024*1024),
+            j2dHeapSize / 1024, arenaSize / (1024*1024));
+#endif
     #if VERSION == VERSION_GCN_JPN
     archiveHeapSize += 0x6C00;
     gameHeapSize += 0xC800;

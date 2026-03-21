@@ -63,7 +63,12 @@ JKRArchive* JKRArchive::mount(s32 entryNum, JKRArchive::EMountMode mountMode, JK
         newArchive = new (heap, alignment) JKRMemArchive(entryNum, mountDirection);
         break;
     case JKRArchive::MOUNT_ARAM:
+#ifdef TARGET_PC
+        /* No ARAM on PC — use JKRMemArchive instead */
+        newArchive = new (heap, alignment) JKRMemArchive(entryNum, mountDirection);
+#else
         newArchive = new (heap, alignment) JKRAramArchive(entryNum, mountDirection);
+#endif
         break;
     case JKRArchive::MOUNT_DVD:
         newArchive = new (heap, alignment) JKRDvdArchive(entryNum, mountDirection);

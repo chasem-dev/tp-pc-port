@@ -91,13 +91,13 @@ bool JKRMemArchive::open(s32 entryNum, JKRArchive::EMountDirection mountDirectio
     else {
 #ifdef TARGET_PC
         /* Debug: print header + data info */
-        fprintf(stderr, "[PC] JKRMemArchive::open(entryNum=%d): compression=%d\n",
+        if (0) fprintf(stderr, "[PC] JKRMemArchive::open(entryNum=%d): compression=%d\n",
                 entryNum, mCompression);
         {
             u8* raw = (u8*)mArcHeader;
             u32 hdrLen = read_big_endian_u32(&((u32*)raw)[2]);
             u8* info = raw + hdrLen;
-            fprintf(stderr, "[PC]   ArcDataInfo @ +%u: %02x%02x%02x%02x %02x%02x%02x%02x\n",
+            if (0) fprintf(stderr, "[PC]   ArcDataInfo @ +%u: %02x%02x%02x%02x %02x%02x%02x%02x\n",
                     hdrLen, info[0], info[1], info[2], info[3], info[4], info[5], info[6], info[7]);
         }
         /* Byte-swap SArcHeader from big-endian disc data */
@@ -158,7 +158,7 @@ bool JKRMemArchive::open(s32 entryNum, JKRArchive::EMountDirection mountDirectio
         mArchiveData =
             (u8 *)((uintptr_t)mArcHeader + mArcHeader->header_length + mArcHeader->file_data_offset);
 #ifdef TARGET_PC
-        fprintf(stderr, "[PC] JKRMemArchive: mArcHeader=%p archiveData=%p (hdr+%u+%u), bytes: %02x%02x%02x%02x %02x%02x%02x%02x\n",
+        if (0) fprintf(stderr, "[PC] JKRMemArchive: mArcHeader=%p archiveData=%p (hdr+%u+%u), bytes: %02x%02x%02x%02x %02x%02x%02x%02x\n",
                 (void*)mArcHeader,
                 mArchiveData, mArcHeader->header_length, mArcHeader->file_data_offset,
                 mArchiveData[0], mArchiveData[1], mArchiveData[2], mArchiveData[3],

@@ -1,7 +1,9 @@
 /* pc_gx_tev.cpp - TEV shader management */
 #include "pc_gx_internal.h"
+#include <dolphin/gx/GXEnum.h>
 
 static GLuint default_shader = 0;
+static GLuint simple_shader = 0;
 
 static GLuint compile_shader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
@@ -44,6 +46,10 @@ static GLuint load_shader_from_file(const char* vert_path, const char* frag_path
     GLuint prog = glCreateProgram();
     glAttachShader(prog, vs);
     glAttachShader(prog, fs);
+    glBindAttribLocation(prog, 0, "a_position");
+    glBindAttribLocation(prog, 1, "a_normal");
+    glBindAttribLocation(prog, 2, "a_color0");
+    glBindAttribLocation(prog, 3, "a_texcoord0");
     glLinkProgram(prog);
 
     GLint success;
@@ -85,49 +91,120 @@ static const char* fallback_frag =
     "    FragColor = vColor;\n"
     "}\n";
 
-void pc_gx_tev_init(void) {
-    /* Try to load from shader files — check multiple paths since CWD may vary */
-    static const char* search_paths[] = {
-        "shaders/default",          /* CWD = bin/ */
-        "bin/shaders/default",      /* CWD = build/ */
-        "../shaders/default",       /* CWD = bin/subdir */
-        NULL
-    };
-    for (const char** p = search_paths; *p && !default_shader; p++) {
-        char vpath[256], fpath[256];
-        snprintf(vpath, sizeof(vpath), "%s.vert", *p);
-        snprintf(fpath, sizeof(fpath), "%s.frag", *p);
-        default_shader = load_shader_from_file(vpath, fpath);
+static const char* simple_vert =
+    "#version 330 core\n"
+    "layout(location=0) in vec3 a_position;\n"
+    "layout(location=1) in vec3 a_normal;\n"
+    "layout(location=2) in vec4 a_color0;\n"
+    "layout(location=3) in vec2 a_texcoord0;\n"
+    "uniform mat4 u_projection;\n"
+    "uniform mat4 u_modelview;\n"
+    "out vec4 v_color;\n"
+    "out vec2 v_texcoord0;\n"
+    "void main() {\n"
+    "    gl_Position = u_projection * u_modelview * vec4(a_position, 1.0);\n"
+    "    v_color = a_color0;\n"
+    "    v_texcoord0 = a_texcoord0;\n"
+    "}\n";
+
+static const char* simple_frag =
+    "#version 330 core\n"
+    "in vec4 v_color;\n"
+    "in vec2 v_texcoord0;\n"
+    "uniform sampler2D u_texture0;\n"
+    "uniform int u_use_texture0;\n"
+    "out vec4 fragColor;\n"
+    "void main() {\n"
+    "    vec4 tex = vec4(1.0);\n"
+    "    if (u_use_texture0 != 0) tex = texture(u_texture0, v_texcoord0);\n"
+    "    fragColor = tex * v_color;\n"
+    "}\n";
+
+static bool use_simple_shader(const PCGXState* state) {
+    if (state->current_primitive != GX_QUADS || state->num_ind_stages != 0) {
+        return false;
     }
 
-    if (!default_shader) {
-        /* Use fallback */
-        GLuint vs = compile_shader(GL_VERTEX_SHADER, fallback_vert);
-        GLuint fs = compile_shader(GL_FRAGMENT_SHADER, fallback_frag);
-        default_shader = glCreateProgram();
-        glAttachShader(default_shader, vs);
-        glAttachShader(default_shader, fs);
-        glLinkProgram(default_shader);
+    if (state->num_tev_stages != 1 || state->num_tex_gens > 1) {
+        return false;
+    }
+
+    const PCGXTevStage* stage0 = &state->tev_stages[0];
+    if (stage0->tex_map > 0 || stage0->tex_coord > 0) {
+        return false;
+    }
+
+    return true;
+}
+
+void pc_gx_tev_init(void) {
+    /* Only compile the simple shader at init — defer the full TEV shader
+     * to avoid triggering Metal's MemoryPoolDecay crash on macOS ARM64.
+     * The full shader will be compiled on demand when needed. */
+    {
+        GLuint vs = compile_shader(GL_VERTEX_SHADER, simple_vert);
+        GLuint fs = compile_shader(GL_FRAGMENT_SHADER, simple_frag);
+        simple_shader = glCreateProgram();
+        glAttachShader(simple_shader, vs);
+        glAttachShader(simple_shader, fs);
+        glBindAttribLocation(simple_shader, 0, "a_position");
+        glBindAttribLocation(simple_shader, 1, "a_normal");
+        glBindAttribLocation(simple_shader, 2, "a_color0");
+        glBindAttribLocation(simple_shader, 3, "a_texcoord0");
+        glLinkProgram(simple_shader);
         glDeleteShader(vs);
         glDeleteShader(fs);
-        fprintf(stderr, "[TEV] Using fallback shader\n");
-    } else {
-        fprintf(stderr, "[TEV] Loaded shaders from files\n");
     }
 
+    /* Use simple shader as default until full TEV is needed */
+    default_shader = simple_shader;
     glUseProgram(default_shader);
     pc_gx_cache_uniform_locations(default_shader);
     g_gx.dirty = PC_GX_DIRTY_ALL;
 
-    fprintf(stderr, "[TEV] Shader ready\n");
+    fprintf(stderr, "[TEV] Shader ready (simple only, full TEV deferred)\n");
     g_gx.current_shader = default_shader;
 }
 
 void pc_gx_tev_shutdown(void) {
     if (default_shader) { glDeleteProgram(default_shader); default_shader = 0; }
+    if (simple_shader) { glDeleteProgram(simple_shader); simple_shader = 0; }
+}
+
+bool pc_gx_tev_is_simple_shader(GLuint shader) {
+    return shader != 0 && shader == simple_shader;
+}
+
+GLuint pc_gx_tev_get_default_shader(void) {
+    return default_shader;
 }
 
 GLuint pc_gx_tev_get_shader(PCGXState* state) {
-    (void)state;
+    static int s_boot_simple_budget = 10000; /* use simple shader for entire boot */
+    if (simple_shader && state->current_primitive == GX_QUADS && state->num_ind_stages == 0 &&
+        s_boot_simple_budget > 0) {
+        static int s_simple_logs = 0;
+        if (s_simple_logs < 10) {
+            fprintf(stderr,
+                    "[TEV] boot simple_shader: tev=%d texgens=%d tex0_map=%d tex0_coord=%d prim=%u budget=%d\n",
+                    state->num_tev_stages, state->num_tex_gens, state->tev_stages[0].tex_map,
+                    state->tev_stages[0].tex_coord, state->current_primitive, s_boot_simple_budget);
+            s_simple_logs++;
+        }
+        s_boot_simple_budget--;
+        return simple_shader;
+    }
+
+    if (simple_shader && use_simple_shader(state)) {
+        static int s_simple_logs = 0;
+        if (s_simple_logs < 10) {
+            fprintf(stderr,
+                    "[TEV] simple_shader: tev=%d texgens=%d tex_map=%d tex_coord=%d prim=%u\n",
+                    state->num_tev_stages, state->num_tex_gens, state->tev_stages[0].tex_map,
+                    state->tev_stages[0].tex_coord, state->current_primitive);
+            s_simple_logs++;
+        }
+        return simple_shader;
+    }
     return default_shader;
 }

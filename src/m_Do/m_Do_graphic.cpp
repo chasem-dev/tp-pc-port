@@ -34,6 +34,7 @@
 #include <cstring>
 
 #ifdef TARGET_PC
+#include "pc_platform.h"
 extern int g_pc_verbose;
 #endif
 
@@ -1534,7 +1535,7 @@ int mDoGph_Painter() {
 #ifdef TARGET_PC
     static int s_painter_frame = 0;
     s_painter_frame++;
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: particle_calcMenu\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): particle_calcMenu\n", s_painter_frame);
 #endif
     #if DEBUG
     drawHeapMap();
@@ -1542,17 +1543,19 @@ int mDoGph_Painter() {
 
     dComIfGp_particle_calcMenu();
 #ifdef TARGET_PC
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: setFader/beginRender\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): setFader/beginRender\n", s_painter_frame);
 #endif
 
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): setFader...\n", s_painter_frame);
     JFWDisplay::getManager()->setFader(mDoGph_gInf_c::getFader());
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): setClearColor...\n", s_painter_frame);
     mDoGph_gInf_c::setClearColor(mDoGph_gInf_c::getBackColor());
 #ifdef TARGET_PC
-    /* Minimal beginRender for PC — JFWDisplay::beginRender has GC-specific
-     * XFB/retrace management that crashes. Just clear and proceed. */
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): GXSetCopyClear...\n", s_painter_frame);
     GXSetCopyClear(mDoGph_gInf_c::getBackColor(), 0xFFFFFF);
+    if (s_painter_frame <= 6) { fprintf(stderr, "[PC] mDoGph_Painter(%d): GXCopyDisp...\n", s_painter_frame); fflush(stderr); }
     GXCopyDisp(NULL, 1);
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: glClear done\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): glClear done\n", s_painter_frame);
 #else
     mDoGph_gInf_c::beginRender();
 #endif
@@ -1562,17 +1565,17 @@ int mDoGph_Painter() {
     #endif
 
 #ifdef TARGET_PC
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: GXSetAlphaUpdate\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): GXSetAlphaUpdate\n");
 #endif
     GXSetAlphaUpdate(GX_DISABLE);
     mDoGph_gInf_c::setBackColor(g_clearColor);
 
 #ifdef TARGET_PC
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: j3dSys.drawInit\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): j3dSys.drawInit\n");
     j3dSys.drawInit();
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: j3dSys.drawInit DONE\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): j3dSys.drawInit DONE\n");
     GXSetDither(GX_ENABLE);
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: J2DOrthoGraph\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): J2DOrthoGraph\n");
 #else
     j3dSys.drawInit();
     GXSetDither(GX_ENABLE);
@@ -1583,7 +1586,7 @@ int mDoGph_Painter() {
                    -1.0f, 1.0f);
     ortho.setPort();
 #ifdef TARGET_PC
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: setPort done, drawCopy2D...\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): setPort done, drawCopy2D...\n");
 #endif
 
     #if DEBUG
@@ -1593,7 +1596,7 @@ int mDoGph_Painter() {
     dComIfGp_setCurrentGrafPort(&ortho);
     dComIfGd_drawCopy2D();
 #ifdef TARGET_PC
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: drawCopy2D done, windows...\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): drawCopy2D done, windows...\n");
 #endif
 
     #if DEBUG
@@ -1605,7 +1608,7 @@ int mDoGph_Painter() {
     #endif
 
 #ifdef TARGET_PC
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: windowNum=%d\n", dComIfGp_getWindowNum());
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): windowNum=%d\n", s_painter_frame, dComIfGp_getWindowNum());
 #endif
     if (dComIfGp_getWindowNum() != 0) {
         dDlst_window_c* window_p = dComIfGp_getWindow(0);
@@ -2079,16 +2082,16 @@ int mDoGph_Painter() {
     #endif
 
 #ifdef TARGET_PC
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: post-window: calcWipe\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): post-window: calcWipe\n");
 #endif
     GXSetClipMode(GX_CLIP_ENABLE);
     dDlst_list_c::calcWipe();
 #ifdef TARGET_PC
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: post-window: reinitGX\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): post-window: reinitGX\n");
 #endif
     j3dSys.reinitGX();
 #ifdef TARGET_PC
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: post-window: ortho2\n");
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): post-window: ortho2\n");
 #endif
 
     ortho.setOrtho(mDoGph_gInf_c::getMinXF(), mDoGph_gInf_c::getMinYF(),
@@ -2101,7 +2104,7 @@ int mDoGph_Painter() {
     #endif
 
 #ifdef TARGET_PC
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: 2D draw (2Ddraw=%d)\n", fapGmHIO_get2Ddraw());
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): 2D draw (2Ddraw=%d)\n", s_painter_frame, fapGmHIO_get2Ddraw());
 #endif
     if (fapGmHIO_get2Ddraw()) {
         Mtx m4;
@@ -2119,10 +2122,12 @@ int mDoGph_Painter() {
         dComIfGp_particle_draw2DmenuBack(&draw_info3);
 #endif
         ortho.setPort();
-
+#ifdef TARGET_PC
+        if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): calling draw2DOpa...\n", s_painter_frame);
+#endif
         dComIfGd_draw2DOpa();
 #ifdef TARGET_PC
-        if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: draw2DOpa done\n");
+        if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): draw2DOpa done\n", s_painter_frame);
         /* Skip drawItem3D — crashes on uninitialized 3D menu state during logo */
 #else
         drawItem3D();
@@ -2177,10 +2182,11 @@ int mDoGph_Painter() {
     #endif
 
 #ifdef TARGET_PC
-    /* Simplified frame end: frame pacing */
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: endRender (frame %d)\n", s_painter_frame);
+    pc_platform_mark_render_thread();
+    mDoGph_gInf_c::endRender();
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): endRender\n", s_painter_frame);
     VIWaitForRetrace();
-    if (g_pc_verbose) fprintf(stderr, "[PC] mDoGph_Painter: VIWaitForRetrace done (frame %d)\n", s_painter_frame);
+    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): VIWaitForRetrace done\n", s_painter_frame);
 #else
     mDoGph_gInf_c::endRender();
 #endif

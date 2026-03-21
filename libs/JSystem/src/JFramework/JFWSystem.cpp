@@ -64,33 +64,72 @@ void JFWSystem::init() {
     JUT_ASSERT(101, sInitCalled == false);
 
     if (rootHeap == NULL) {
+#ifdef TARGET_PC
+        fprintf(stderr, "[PC] JFWSystem::init: firstInit...\n");
+#endif
         firstInit();
     }
     sInitCalled = true;
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: JKRAram::create...\n");
+#endif
     JKRAram::create(CSetUpParam::aramAudioBufSize, CSetUpParam::aramGraphBufSize,
                     CSetUpParam::streamPriority, CSetUpParam::decompPriority,
                     CSetUpParam::aPiecePriority);
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: mainThread wrapper...\n");
+#endif
     mainThread = new JKRThread(OSGetCurrentThread(), 4);
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: JUTVideo::createManager...\n");
+#endif
     JUTVideo::createManager(CSetUpParam::renderMode);
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: JUTCreateFifo...\n");
+#endif
     JUTCreateFifo(CSetUpParam::fifoBufSize);
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: JUTGamePad::init...\n");
+#endif
     JUTGamePad::init();
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: JUTDirectPrint::start...\n");
+#endif
     JUTDirectPrint* dbPrint = JUTDirectPrint::start();
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: JUTAssertion::create...\n");
+#endif
     JUTAssertion::create();
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: JUTException::create...\n");
+#endif
     JUTException::create(dbPrint);
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: system font...\n");
+#endif
     systemFont = new JUTResFont(CSetUpParam::systemFontRes, NULL);
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: JUTDbPrint::start...\n");
+#endif
     debugPrint = JUTDbPrint::start(NULL, NULL);
     debugPrint->changeFont(systemFont);
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: console manager...\n");
+#endif
     systemConsoleManager = JUTConsoleManager::createManager(NULL);
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: console create...\n");
+#endif
     systemConsole = JUTConsole::create(60, 200, NULL);
     systemConsole->setFont(systemFont);
 
@@ -108,6 +147,12 @@ void JFWSystem::init() {
     JUTSetReportConsole(systemConsole);
     JUTSetWarningConsole(systemConsole);
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: exception console...\n");
+#endif
     void* buffer = systemHeap->alloc(CSetUpParam::exConsoleBufferSize, 4);
     JUTException::createConsole(buffer, CSetUpParam::exConsoleBufferSize);
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] JFWSystem::init: complete\n");
+#endif
 }

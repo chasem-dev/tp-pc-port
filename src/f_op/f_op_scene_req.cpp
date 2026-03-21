@@ -4,6 +4,9 @@
  */
 
 #include "f_op/f_op_scene_req.h"
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
 #include "f_op/f_op_overlap_mng.h"
 #include "f_op/f_op_scene.h"
 #include "f_op/f_op_scene_pause.h"
@@ -147,5 +150,14 @@ s32 fopScnRq_ReRequest(fpc_ProcID i_requestId, s16 i_procName, void* i_data) {
 }
 
 int fopScnRq_Handler() {
+#ifdef TARGET_PC
+    static int s_handler_count = 0;
+    s_handler_count++;
+    int result = fpcNdRq_Handler();
+    if (s_handler_count <= 3 || s_handler_count % 300 == 0)
+        fprintf(stderr, "[PC] fopScnRq_Handler #%d: result=%d\n", s_handler_count, result);
+    return result;
+#else
     return fpcNdRq_Handler();
+#endif
 }

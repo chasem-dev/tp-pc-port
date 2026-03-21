@@ -36,7 +36,21 @@ bool JKRArchive::isSameName(JKRArchive::CArcName& name, u32 nameOffset, u16 name
     u16 hash = name.getHash();
     if (hash != nameHash)
         return false;
+#ifdef TARGET_PC
+    const char* archiveName = mStringTable + nameOffset;
+    const char* searchName = name.getString();
+    int cmp = strcmp(archiveName, searchName);
+    if (cmp != 0) {
+        static int s_mismatch_log = 0;
+        if (s_mismatch_log++ < 3) {
+            fprintf(stderr, "[ARC] hash match but strcmp FAIL: archive='%s' search='%s' offset=%u\n",
+                    archiveName, searchName, nameOffset);
+        }
+    }
+    return cmp == 0;
+#else
     return strcmp(mStringTable + nameOffset, name.getString()) == 0;
+#endif
 }
 
 JKRArchive::SDIDirEntry* JKRArchive::findResType(u32 type) const {
@@ -130,7 +144,36 @@ JKRArchive::SDIFileEntry* JKRArchive::findNameResource(const char* name) const {
     SDIFileEntry* fileEntry = mFiles;
 
     CArcName arcName(name);
+#ifdef TARGET_PC
+    static int s_find_log = 0;
+    if (s_find_log < 3) {
+        s_find_log++;
+        fprintf(stderr, "[ARC] findNameResource('%s'): hash=0x%04x mFiles=%p num_entries=%d mStringTable=%p\n",
+                name, arcName.getHash(), (void*)mFiles, mArcInfoBlock ? mArcInfoBlock->num_file_entries : -1,
+                (void*)mStringTable);
+        if (mFiles && mArcInfoBlock && mStringTable) {
+            for (int j = 0; j < mArcInfoBlock->num_file_entries && j < 45; j++) {
+                u32 nameOff = mFiles[j].type_flags_and_name_offset & 0xFFFFFF;
+                fprintf(stderr, "[ARC]   entry[%d]: hash=0x%04x nameOff=%u name='%s' flags=0x%02x\n",
+                        j, mFiles[j].name_hash, nameOff,
+                        nameOff < 0x10000 ? (const char*)(mStringTable + nameOff) : "?",
+                        (mFiles[j].type_flags_and_name_offset >> 24) & 0xFF);
+            }
+        }
+    }
+#endif
     for (int i = 0; i < mArcInfoBlock->num_file_entries; i++) {
+#ifdef TARGET_PC
+        if (i == 26 && s_find_log <= 3) {
+            u16 entryHash = fileEntry->name_hash;
+            u16 searchHash = arcName.getHash();
+            u32 nameOff = fileEntry->type_flags_and_name_offset & 0xFFFFFF;
+            fprintf(stderr, "[ARC] checking entry[26]: entryHash=0x%04x searchHash=0x%04x nameOff=%u entryName='%s' flags=0x%02x\n",
+                    entryHash, searchHash, nameOff,
+                    (const char*)(mStringTable + nameOff),
+                    (fileEntry->type_flags_and_name_offset >> 24) & 0xFF);
+        }
+#endif
         if (isSameName(arcName, fileEntry->type_flags_and_name_offset & 0xFFFFFF, fileEntry->name_hash)) {
             return fileEntry;
         }
