@@ -125,6 +125,30 @@ u32 PADRead(PADStatus* status) {
         if (ly > 4000 || ly < -4000) status[0].stickY = (s8)(-ly * 72 / 32767);
     }
 
+    /* Log when buttons are pressed (only on change) */
+    {
+        static u16 s_prev_buttons = 0;
+        static s8 s_prev_stickX = 0, s_prev_stickY = 0;
+        u16 btn = status[0].button;
+        if (btn != s_prev_buttons) {
+            const char* names[] = {"DL","DR","DD","DU","Z","R","L",NULL,"A","B","X","Y","Start"};
+            fprintf(stderr, "[PAD] buttons:");
+            for (int i = 0; i < 13; i++) {
+                if (names[i] && (btn & (1 << i))) fprintf(stderr, " %s", names[i]);
+            }
+            if (!btn) fprintf(stderr, " (none)");
+            fprintf(stderr, "\n");
+            s_prev_buttons = btn;
+        }
+        if (status[0].stickX != s_prev_stickX || status[0].stickY != s_prev_stickY) {
+            if (status[0].stickX || status[0].stickY) {
+                fprintf(stderr, "[PAD] stick: X=%d Y=%d\n", status[0].stickX, status[0].stickY);
+            }
+            s_prev_stickX = status[0].stickX;
+            s_prev_stickY = status[0].stickY;
+        }
+    }
+
     return 0x000F0000; /* all controllers connected mask */
 }
 

@@ -2279,6 +2279,9 @@ static int dStage_fieldMapTresureInit(dStage_dt_c* i_stage, void* i_data, int i_
 }
 
 static void dStage_dt_c_offsetToPtr(void* i_data) {
+#ifdef TARGET_PC
+    if (i_data == NULL) return;
+#endif
     dStage_fileHeader* file = (dStage_fileHeader*)i_data;
     dStage_nodeHeader* p_tno = file->m_nodes;
 
