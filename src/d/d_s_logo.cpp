@@ -9,6 +9,8 @@
 #ifdef TARGET_PC
 extern "C" void pc_platform_poll_events_only(void);
 extern "C" void pc_platform_swap_buffers(void);
+extern "C" u64 SDL_GetPerformanceCounter(void);
+extern "C" u64 SDL_GetPerformanceFrequency(void);
 #endif
 #include "JSystem/JKernel/JKRAram.h"
 #include "JSystem/JKernel/JKRExpHeap.h"
@@ -224,12 +226,21 @@ int dScnLogo_c::draw() {
 #ifdef TARGET_PC
     static int s_draw_count = 0;
     static int s_last_cmd = -1;
+    static u64 s_boot_time = 0;
+    if (!s_boot_time) s_boot_time = SDL_GetPerformanceCounter();
     s_draw_count++;
+    u64 now = SDL_GetPerformanceCounter();
+    double elapsed_ms = (double)(now - s_boot_time) * 1000.0 / (double)SDL_GetPerformanceFrequency();
     if (s_last_cmd != mExecCommand) {
-        fprintf(stderr, "[PC] dScnLogo_c::draw: state %d timer=%d\n", mExecCommand, mTimer);
+        const char* names[] = {"WARNING_IN","WARNING_DISP","WARNING_OUT",
+            "NINTENDO_IN","NINTENDO_OUT","DOLBY_IN","DOLBY_OUT","DOLBY_OUT2",
+            "PROG_IN","PROG_SEL","PROG_OUT","PROG_SET","PROG_SET2","PROG_CHANGE",
+            "DVD_WAIT","NEXT_SCENE"};
+        const char* name = (mExecCommand < 16) ? names[mExecCommand] : "?";
+        fprintf(stderr, "[LOGO] %.0fms: %s (cmd=%d timer=%d frame=%d)\n",
+                elapsed_ms, name, mExecCommand, mTimer, s_draw_count);
         s_last_cmd = mExecCommand;
     }
-    if (s_draw_count <= 5 || s_draw_count % 30 == 1) fprintf(stderr, "[PC] dScnLogo_c::draw() cmd=%d timer=%d (frame %d)\n", mExecCommand, mTimer, s_draw_count);
 #endif
     cLib_calcTimer<u16>(&mTimer);
     (this->*l_execFunc[mExecCommand])();
@@ -1220,11 +1231,11 @@ int dScnLogo_c::create() {
     #if !(PLATFORM_WII || PLATFORM_SHIELD)
     checkProgSelect();
 #ifdef TARGET_PC
-    /* Skip logos for faster testing — re-enable for release */
-    mExecCommand = EXEC_DVD_WAIT;
-    mTimer = 1;
+    /* Skip warning — go straight to Nintendo logo */
     mDoRst::setWarningDispFlag(1);
     mDoRst::setProgSeqFlag(1);
+    mTimer = 90;
+    mExecCommand = EXEC_NINTENDO_IN;
     {
 #else
     if (field_0x20a != 0) {

@@ -1456,6 +1456,9 @@ inline u32 dStage_stagInfo_GetMiniMap(stage_stag_info_class* pstag) {
 }
 
 inline u32 dStage_stagInfo_GetParticleNo(stage_stag_info_class* p_info) {
+#ifdef TARGET_PC
+    if (p_info == NULL) return 255;
+#endif
     return (p_info->field_0x0a >> 0x3) & 0xFF;
 }
 

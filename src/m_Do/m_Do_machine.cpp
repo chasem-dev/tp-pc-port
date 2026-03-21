@@ -808,9 +808,11 @@ int mDoMch_Create() {
     /* On PC, we have abundant RAM. The GameCube had 24MB total with 16MB ARAM.
      * We load ARAM archives into main memory, so heaps need to be much larger.
      * Also reserve enough arena for these larger heaps by reducing sysHeapSize. */
-    archiveHeapSize *= 4;   /* ~36MB (was ~9MB) — holds all game archives */
-    gameHeapSize *= 4;      /* ~17MB (was ~4.3MB) — Always.arc, Alink.arc need this */
-    j2dHeapSize *= 4;       /* ~2MB (was ~500KB) */
+    /* 64-bit: pointers are 8 bytes instead of 4, CMemBlock headers are 24 bytes
+     * instead of 16, and struct padding is larger. Scale all heaps generously. */
+    archiveHeapSize *= 8;
+    gameHeapSize *= 8;
+    j2dHeapSize *= 8;
     /* Ensure arena has enough room: reduce the system heap to make space.
      * arenaSize becomes the system heap; the root heap gets totalArena,
      * and sub-heaps + system heap must fit within it. */

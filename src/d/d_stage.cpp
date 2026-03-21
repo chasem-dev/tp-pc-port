@@ -1879,6 +1879,9 @@ static int dStage_lgtvInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
 }
 
 u32 dStage_stagInfo_GetParticleNo(stage_stag_info_class* p_info, int layer) {
+#ifdef TARGET_PC
+    if (p_info == NULL) return 255;
+#endif
     JUT_ASSERT(2220, 0 <= layer && layer < 15);
     return p_info->mParticleNo[layer];
 }

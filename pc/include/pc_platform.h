@@ -28,7 +28,7 @@
 #if UINTPTR_MAX > 0xFFFFFFFFu
 /* 64-bit: structs with pointer fields are larger, need more arena space.
  * Also need extra room since ARAM archives are loaded into main memory. */
-#define PC_MAIN_MEMORY_SIZE   (256 * 1024 * 1024)
+#define PC_MAIN_MEMORY_SIZE   (512 * 1024 * 1024)
 #else
 #define PC_MAIN_MEMORY_SIZE   (128 * 1024 * 1024)
 #endif

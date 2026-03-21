@@ -297,9 +297,11 @@ u8 JKRHeap::getCurrentGroupId() {
 }
 
 u32 JKRHeap::getMaxAllocatableSize(int alignment) {
-    u32 maxFreeBlock = (uintptr_t)getMaxFreeBlock();
-    u32 ptrOffset = (alignment - 1) & alignment - (maxFreeBlock & 0xf);
-    return ~(alignment - 1) & (getFreeSize() - ptrOffset);
+    uintptr_t maxFreeBlock = (uintptr_t)getMaxFreeBlock();
+    u32 ptrOffset = (alignment - 1) & (u32)(alignment - (maxFreeBlock & 0xf));
+    u32 freeSize = getFreeSize();
+    if (ptrOffset > freeSize) return 0;
+    return ~(alignment - 1) & (freeSize - ptrOffset);
 }
 
 JKRHeap* JKRHeap::findFromRoot(void* ptr) {

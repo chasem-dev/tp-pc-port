@@ -118,8 +118,12 @@ static void pc_signal_handler(int sig, siginfo_t* info, void* ucontext) {
         pc_active_jmpbuf = NULL;
         longjmp(*buf, 1);
     }
-    /* No BG crash absorption — VI callback fix prevents the Metal crash.
-     * Let BG crashes be fatal (matches AC). */
+    /* Background thread crash — absorb by returning.
+     * VI callback fix prevents most Metal crashes, but some may still
+     * occur from the immediate archive finalization in dRes_info_c::set. */
+    if (!g_pc_main_pthread_valid || !pthread_equal(pthread_self(), g_pc_main_pthread)) {
+        return;
+    }
     signal(sig, SIG_DFL);
     raise(sig);
 }
@@ -312,9 +316,13 @@ extern "C" void pc_platform_begin_frame(void) {
 }
 
 extern "C" void pc_platform_pump_events_safe(void) {
-    /* Pump events — safe now that we don't call VI pre/post retrace
-     * callbacks (which interleaved GL ops with Cocoa event processing). */
+    /* Pump events less frequently — every-frame pumping triggers SkyLight
+     * NSEventThread crashes on macOS ARM64. Every 30 frames keeps the
+     * window responsive without overwhelming the event system. */
     if (!g_pc_window) return;
+    static u32 s_pump_frame = 0;
+    s_pump_frame++;
+    if (s_pump_frame % 30 != 0) return;
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
         switch (ev.type) {
