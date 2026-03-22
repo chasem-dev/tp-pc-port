@@ -1883,7 +1883,7 @@ u32 dStage_stagInfo_GetParticleNo(stage_stag_info_class* p_info, int layer) {
     if (p_info == NULL) return 255;
 #endif
     JUT_ASSERT(2220, 0 <= layer && layer < 15);
-    return p_info->mParticleNo[layer];
+    return STAG_SAFE(p_info)->mParticleNo[layer];
 }
 
 static int dStage_stagInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {

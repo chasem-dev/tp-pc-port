@@ -1443,43 +1443,55 @@ inline u32 dStage_roomRead_dt_c_GetReverb(roomRead_data_class& room) {
     return room.field_0x1 & 0x7F;
 }
 
+#ifdef TARGET_PC
+/* On PC, getStagInfo() can be NULL in phase_2 because dStage_Create
+ * runs in phase_4. Return safe defaults for all stagInfo getters. */
+static stage_stag_info_class s_dummy_stagInfo = {};
+inline stage_stag_info_class* dStage_stagInfo_safe(stage_stag_info_class* p) {
+    return p ? p : &s_dummy_stagInfo;
+}
+#define STAG_SAFE(p) dStage_stagInfo_safe(p)
+#else
+#define STAG_SAFE(p) (p)
+#endif
+
 inline u32 dStage_stagInfo_GetSTType(stage_stag_info_class* pstag) {
-    return (pstag->field_0x0c >> 16) & 7;
+    return (STAG_SAFE(pstag)->field_0x0c >> 16) & 7;
 }
 
 inline int dStage_stagInfo_GetEscapeWarp(stage_stag_info_class* pstag) {
-    return (pstag->field_0x10 >> 24);
+    return (STAG_SAFE(pstag)->field_0x10 >> 24);
 }
 
 inline u32 dStage_stagInfo_GetMiniMap(stage_stag_info_class* pstag) {
-    return (pstag->field_0x0a >> 0xD) & 7;
+    return (STAG_SAFE(pstag)->field_0x0a >> 0xD) & 7;
 }
 
 inline u32 dStage_stagInfo_GetParticleNo(stage_stag_info_class* p_info) {
 #ifdef TARGET_PC
     if (p_info == NULL) return 255;
 #endif
-    return (p_info->field_0x0a >> 0x3) & 0xFF;
+    return (STAG_SAFE(p_info)->field_0x0a >> 0x3) & 0xFF;
 }
 
 inline s32 dStage_stagInfo_GetUpButton(stage_stag_info_class* p_info) {
-    return p_info->field_0x0a & 7;
+    return STAG_SAFE(p_info)->field_0x0a & 7;
 }
 
 inline u32 dStage_stagInfo_GetArg0(stage_stag_info_class* p_info) {
-    return (p_info->field_0x0c >> 0x14) & 0xFF;
+    return (STAG_SAFE(p_info)->field_0x0c >> 0x14) & 0xFF;
 }
 
 inline int dStage_stagInfo_GetMsgGroup(stage_stag_info_class* p_info) {
-    return p_info->mMsgGroup;
+    return STAG_SAFE(p_info)->mMsgGroup;
 }
 
 inline s32 dStage_stagInfo_GetSaveTbl(stage_stag_info_class* param_0) {
-    return param_0->field_0x09 >> 1 & 0x1f;
+    return STAG_SAFE(param_0)->field_0x09 >> 1 & 0x1f;
 }
 
 inline int dStage_stagInfo_GetTimeH(stage_stag_info_class* p_info) {
-    s8 time = (p_info->field_0x0c >> 8) & 0xFF;
+    s8 time = (STAG_SAFE(p_info)->field_0x0c >> 8) & 0xFF;
     return time;
 }
 
@@ -1488,15 +1500,15 @@ inline BOOL dStage_staginfo_GetArchiveHeap(stage_stag_info_class* p_info) {
 }
 
 inline int dStage_stagInfo_GetGapLevel(stage_stag_info_class* pstag) {
-    return pstag->mGapLevel;
+    return STAG_SAFE(pstag)->mGapLevel;
 }
 
 inline int dStage_stagInfo_GetRangeUp(stage_stag_info_class* pstag) {
-    return pstag->mRangeUp;
+    return STAG_SAFE(pstag)->mRangeUp;
 }
 
 inline int dStage_stagInfo_GetRangeDown(stage_stag_info_class* pstag) {
-    return pstag->mRangeDown;
+    return STAG_SAFE(pstag)->mRangeDown;
 }
 
 inline u32 dStage_stagInfo_ChkKeyDisp(stage_stag_info_class* pstag) {
@@ -1504,11 +1516,11 @@ inline u32 dStage_stagInfo_ChkKeyDisp(stage_stag_info_class* pstag) {
 }
 
 inline int dStage_stagInfo_GetWolfDashType(stage_stag_info_class* pstag) {
-    return (pstag->field_0x09 >> 6) & 3;
+    return (STAG_SAFE(pstag)->field_0x09 >> 6) & 3;
 }
 
 inline u16 dStage_stagInfo_GetStageTitleNo(stage_stag_info_class* pstag) {
-    return pstag->mStageTitleNo;
+    return STAG_SAFE(pstag)->mStageTitleNo;
 }
 
 inline int dStage_stagInfo_DefaultCameraType(stage_stag_info_class* pstag) {
@@ -1516,7 +1528,7 @@ inline int dStage_stagInfo_DefaultCameraType(stage_stag_info_class* pstag) {
 }
 
 inline u16 dStage_stagInfo_GetCullPoint(stage_stag_info_class* pstag) {
-    return pstag->field_0x10 & 0xFFFF;
+    return STAG_SAFE(pstag)->field_0x10 & 0xFFFF;
 }
 
 inline u8 dStage_sclsInfo_getSceneLayer(stage_scls_info_class* p_info) {

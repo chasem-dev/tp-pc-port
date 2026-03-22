@@ -1332,11 +1332,24 @@ static int phase_2(dScnPly_c* i_this) {
     }
 #endif
 
+#ifdef TARGET_PC
+    /* On PC, dStage_Create runs in phase_4 which hasn't executed yet.
+     * getStagInfo() is NULL at this point. Default to particle 0. */
+    u8 particle_no = 0;
+    if (dComIfGp_getStage()->getStagInfo() != NULL) {
+        particle_no = dStage_stagInfo_GetParticleNo(dComIfGp_getStage()->getStagInfo(),
+                                                     dComIfG_play_c::getLayerNo(0));
+        if (particle_no == 255) {
+            particle_no = dStage_stagInfo_GetParticleNo(dComIfGp_getStage()->getStagInfo());
+        }
+    }
+#else
     u8 particle_no = dStage_stagInfo_GetParticleNo(dComIfGp_getStage()->getStagInfo(),
                                                    dComIfG_play_c::getLayerNo(0));
     if (particle_no == 255) {
         particle_no = dStage_stagInfo_GetParticleNo(dComIfGp_getStage()->getStagInfo());
     }
+#endif
 
     #if DEBUG
     if (fapGm_HIO_c::mParticle254Fix) {
