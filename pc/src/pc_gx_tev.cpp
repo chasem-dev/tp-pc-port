@@ -121,20 +121,11 @@ static const char* simple_frag =
     "}\n";
 
 static bool use_simple_shader(const PCGXState* state) {
-    if (state->current_primitive != GX_QUADS || state->num_ind_stages != 0) {
-        return false;
-    }
-
-    if (state->num_tev_stages != 1 || state->num_tex_gens > 1) {
-        return false;
-    }
-
-    const PCGXTevStage* stage0 = &state->tev_stages[0];
-    if (stage0->tex_map > 0 || stage0->tex_coord > 0) {
-        return false;
-    }
-
-    return true;
+    /* Always use the full TEV shader — the simple shader doesn't handle
+     * TEV color/alpha operations correctly (e.g., intensity textures with
+     * TEV-applied colors for the Nintendo logo). */
+    (void)state;
+    return false;
 }
 
 void pc_gx_tev_init(void) {
