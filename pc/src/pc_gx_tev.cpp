@@ -171,21 +171,9 @@ GLuint pc_gx_tev_get_default_shader(void) {
 }
 
 GLuint pc_gx_tev_get_shader(PCGXState* state) {
-    static int s_boot_simple_budget = 10000; /* use simple shader for entire boot */
-    if (simple_shader && state->current_primitive == GX_QUADS && state->num_ind_stages == 0 &&
-        s_boot_simple_budget > 0) {
-        static int s_simple_logs = 0;
-        if (s_simple_logs < 10) {
-            fprintf(stderr,
-                    "[TEV] boot simple_shader: tev=%d texgens=%d tex0_map=%d tex0_coord=%d prim=%u budget=%d\n",
-                    state->num_tev_stages, state->num_tex_gens, state->tev_stages[0].tex_map,
-                    state->tev_stages[0].tex_coord, state->current_primitive, s_boot_simple_budget);
-            s_simple_logs++;
-        }
-        s_boot_simple_budget--;
-        return simple_shader;
-    }
-
+    /* Always use full TEV shader — the boot simple budget was a workaround
+     * for the Metal crash (now fixed by disabling VI callbacks). The simple
+     * shader doesn't handle TEV color ops needed for logo rendering. */
     if (simple_shader && use_simple_shader(state)) {
         static int s_simple_logs = 0;
         if (s_simple_logs < 10) {
