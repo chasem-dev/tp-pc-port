@@ -147,13 +147,23 @@ void pc_gx_tev_init(void) {
         glDeleteShader(fs);
     }
 
-    /* Use simple shader as default until full TEV is needed */
-    default_shader = simple_shader;
+    /* Try to load the full TEV shader from file */
+    default_shader = load_shader_from_file("shaders/default.vert", "shaders/default.frag");
+    if (!default_shader) {
+        /* Try relative to executable */
+        default_shader = load_shader_from_file("build/bin/shaders/default.vert", "build/bin/shaders/default.frag");
+    }
+    if (!default_shader) {
+        fprintf(stderr, "[TEV] WARNING: Full TEV shader not found, falling back to simple\n");
+        default_shader = simple_shader;
+    } else {
+        fprintf(stderr, "[TEV] Full TEV shader compiled OK\n");
+    }
     glUseProgram(default_shader);
     pc_gx_cache_uniform_locations(default_shader);
     g_gx.dirty = PC_GX_DIRTY_ALL;
 
-    fprintf(stderr, "[TEV] Shader ready (simple only, full TEV deferred)\n");
+    fprintf(stderr, "[TEV] Shader ready\n");
     g_gx.current_shader = default_shader;
 }
 
