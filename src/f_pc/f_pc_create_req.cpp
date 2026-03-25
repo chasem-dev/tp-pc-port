@@ -94,10 +94,11 @@ BOOL fpcCtRq_Do(create_request* i_request) {
 
     switch (phase) {
     case cPhs_COMPLEATE_e: {
-        if (fpcEx_ToExecuteQ(i_request->process) == 0)
+        if (fpcEx_ToExecuteQ(i_request->process) == 0) {
             return fpcCtRq_Cancel(i_request);
-        else
+        } else {
             return fpcCtRq_Delete(i_request);
+        }
     }
     case cPhs_UNK3_e:
     case cPhs_ERROR_e:

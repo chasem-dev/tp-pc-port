@@ -96,6 +96,7 @@ void pc_platform_ensure_gl_context_current(void);
 /* --- Crash protection --- */
 void pc_crash_protection_init(void);
 void pc_crash_set_jmpbuf(jmp_buf* buf);
+jmp_buf* pc_crash_get_jmpbuf(void);
 uintptr_t pc_crash_get_addr(void);
 
 /* Compile-time type validation */

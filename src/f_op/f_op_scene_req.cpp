@@ -14,32 +14,82 @@
 #include "f_pc/f_pc_manager.h"
 
 static cPhs_Step fopScnRq_phase_ClearOverlap(scene_request_class* i_sceneReq) {
-    return fopOvlpM_ClearOfReq() == 1 ? cPhs_NEXT_e : cPhs_INIT_e;
+    int cleared = fopOvlpM_ClearOfReq();
+#ifdef TARGET_PC
+    static int s_log_count = 0;
+    if ((cleared == 1 || s_log_count++ < 10) && i_sceneReq->fade_request != NULL) {
+        fprintf(stderr, "[SCNRQ] phase_ClearOverlap: cleared=%d\n", cleared);
+    }
+#endif
+    return cleared == 1 ? cPhs_NEXT_e : cPhs_INIT_e;
     UNUSED(i_sceneReq);
 }
 
 static cPhs_Step fopScnRq_phase_Execute(scene_request_class* i_sceneReq) {
+#ifdef TARGET_PC
+    static int s_execute_log = 0;
+    if (s_execute_log++ < 10) {
+        fprintf(stderr, "[SCNRQ] phase_Execute: name=%d params=%d fade=%p\n",
+                i_sceneReq->create_request.name, i_sceneReq->create_request.parameters,
+                (void*)i_sceneReq->fade_request);
+    }
+#endif
     return fpcNdRq_Execute(&i_sceneReq->create_request);
 }
 
 static cPhs_Step fopScnRq_phase_IsDoingOverlap(scene_request_class* i_sceneReq) {
-    return fopOvlpM_IsDoingReq() == 1 ? cPhs_NEXT_e : cPhs_INIT_e;
+    int doing = fopOvlpM_IsDoingReq();
+#ifdef TARGET_PC
+    static int s_log_count = 0;
+    if ((doing == 1 || s_log_count++ < 20) && i_sceneReq->fade_request != NULL) {
+        fprintf(stderr, "[SCNRQ] phase_IsDoingOverlap: doing=%d\n", doing);
+    }
+#endif
+    return doing == 1 ? cPhs_NEXT_e : cPhs_INIT_e;
     UNUSED(i_sceneReq);
 }
 
 static cPhs_Step fopScnRq_phase_IsDoneOverlap(scene_request_class* i_sceneReq) {
-    return fopOvlpM_IsDone() == 1 ? cPhs_NEXT_e : cPhs_INIT_e;
+    int done = fopOvlpM_IsDone();
+#ifdef TARGET_PC
+    static int s_log_count = 0;
+    if ((done == 1 || s_log_count++ < 40) && i_sceneReq->fade_request != NULL) {
+        fprintf(stderr, "[SCNRQ] phase_IsDoneOverlap: done=%d\n", done);
+    }
+#endif
+    return done == 1 ? cPhs_NEXT_e : cPhs_INIT_e;
     UNUSED(i_sceneReq);
 }
 
 static BOOL l_fopScnRq_IsUsingOfOverlap;
 
 static cPhs_Step fopScnRq_phase_Done(scene_request_class* i_sceneReq) {
-    
+#ifdef TARGET_PC
+    fprintf(stderr, "[PC] fopScnRq_phase_Done: params=%d creating_id=%u\n",
+            i_sceneReq->create_request.parameters, (unsigned)i_sceneReq->create_request.creating_id);
+#endif
     if (i_sceneReq->create_request.parameters != 1) {
         scene_class* scene = (scene_class*)fpcM_SearchByID(i_sceneReq->create_request.creating_id);
+#ifdef TARGET_PC
+        /* Some PC handoffs report a transient creating_id that is not the final scene.
+         * Fall back to process-name lookup so the new scene is actually unpaused. */
+        scene_class* sceneByName = (scene_class*)fpcM_SearchByName(i_sceneReq->create_request.name);
+        if (scene == NULL) {
+            scene = sceneByName;
+        }
+#endif
+#ifdef TARGET_PC
+        fprintf(stderr, "[PC] fopScnRq_phase_Done: scene=%p, calling fopScnPause_Disable\n", (void*)scene);
+#endif
         (void)scene;
         fopScnPause_Disable(scene);
+#ifdef TARGET_PC
+        if (sceneByName != NULL && sceneByName != scene) {
+            fprintf(stderr, "[PC] fopScnRq_phase_Done: also disabling by-name scene=%p name=%d\n",
+                    (void*)sceneByName, i_sceneReq->create_request.name);
+            fopScnPause_Disable(sceneByName);
+        }
+#endif
     }
 
     l_fopScnRq_IsUsingOfOverlap = FALSE;
@@ -83,6 +133,10 @@ static scene_request_class* fopScnRq_FadeRequest(s16 i_procname, u16 i_peektime)
         req = fopOvlpM_Request(i_procname, i_peektime);
         if (req != NULL) {
             l_fopScnRq_IsUsingOfOverlap = TRUE;
+#ifdef TARGET_PC
+            fprintf(stderr, "[SCNRQ] FadeRequest: proc=%d peek=%u req=%p\n",
+                    i_procname, i_peektime, (void*)req);
+#endif
         }
     }
 
@@ -140,6 +194,10 @@ fpc_ProcID fopScnRq_Request(int i_reqType, scene_class* i_scene, s16 i_procName,
         }
     }
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[SCNRQ] Request: type=%d proc=%d fade=%d peek=%u req=%p fadeReq=%p\n",
+            i_reqType, i_procName, i_fadename, i_peektime, (void*)req, (void*)fade_req);
+#endif
     req->fade_request = fade_req;
     cPhs_Set(&req->phase_request, phase_handler);
     return req->create_request.request_id;

@@ -6,6 +6,18 @@
 #include "d/dolzel.h" // IWYU pragma: keep
 
 #include "d/d_bg_s.h"
+#ifdef TARGET_PC
+/* Guard against corrupted 64-bit pointers in collision elements.
+ * On PC, some dBgW_Base pointers contain garbage from 32→64 bit
+ * pointer expansion issues in the collision data. */
+static inline bool pc_bgw_ptr_valid(const void* p) {
+    uintptr_t v = (uintptr_t)p;
+    return v > 0x10000 && v < 0x800000000000ULL;
+}
+#define BGW_PTR_OK(p) pc_bgw_ptr_valid(p)
+#else
+#define BGW_PTR_OK(p) ((p) != NULL)
+#endif
 #include "d/d_bg_s_sph_chk.h"
 #include "d/d_bg_w.h"
 #include "d/d_com_inf_game.h"
@@ -281,7 +293,7 @@ bool cBgS::LineCross(cBgS_LinChk* plinchk) {
 
     cBgS_ChkElm* elm = m_chk_element;
     for (int i = 0; i < 0x100; i++) {
-        if (elm->ChkUsed() && !elm->m_bgw_base_ptr->ChkNotReady() &&
+        if (elm->ChkUsed() && BGW_PTR_OK(elm->m_bgw_base_ptr) && !elm->m_bgw_base_ptr->ChkNotReady() &&
             !plinchk->ChkSameActorPid(elm->m_actor_id) && elm->m_bgw_base_ptr->LineCheck(plinchk))
         {
             plinchk->SetActorInfo(i, elm->m_bgw_base_ptr, elm->m_actor_id);
@@ -300,7 +312,7 @@ f32 cBgS::GroundCross(cBgS_GndChk* pgndchk) {
 
     cBgS_ChkElm* elm = m_chk_element;
     for (int i = 0; i < 0x100; i++) {
-        if (elm->ChkUsed() && !elm->m_bgw_base_ptr->ChkNotReady() &&
+        if (elm->ChkUsed() && BGW_PTR_OK(elm->m_bgw_base_ptr) && !elm->m_bgw_base_ptr->ChkNotReady() &&
             !pgndchk->ChkSameActorPid(elm->m_actor_id) && elm->m_bgw_base_ptr->GroundCross(pgndchk))
         {
             pgndchk->SetActorInfo(i, elm->m_bgw_base_ptr, elm->m_actor_id);
@@ -1390,7 +1402,7 @@ void dBgS::WallCorrect(dBgS_Acch* pacch) {
         cBgS_ChkElm* elm = m_chk_element;
 
         for (int j = 0; j < 0x100; j++) {
-            if (elm->ChkUsed() && !elm->m_bgw_base_ptr->ChkNotReady()) {
+            if (elm->ChkUsed() && BGW_PTR_OK(elm->m_bgw_base_ptr) && !elm->m_bgw_base_ptr->ChkNotReady()) {
                 dBgW_Base* pbgw = elm->m_bgw_base_ptr;
 
                 if (pbgw->ChkPriority(i) && !pacch->ChkSameActorPid(elm->m_actor_id)) {
@@ -1434,7 +1446,7 @@ void dBgS::WallCorrectSort(dBgS_Acch* pacch) {
         cBgS_ChkElm* elm = m_chk_element;
 
         for (int j = 0; j < 0x100; j++) {
-            if (elm->ChkUsed() && !elm->m_bgw_base_ptr->ChkNotReady()) {
+            if (elm->ChkUsed() && BGW_PTR_OK(elm->m_bgw_base_ptr) && !elm->m_bgw_base_ptr->ChkNotReady()) {
                 dBgW_Base* pbgw = elm->m_bgw_base_ptr;
 
                 if (pbgw->ChkPriority(i) && !pacch->ChkSameActorPid(elm->m_actor_id)) {
@@ -1475,7 +1487,7 @@ f32 dBgS::RoofChk(dBgS_RoofChk* proof) {
 
     cBgS_ChkElm* elm = m_chk_element;
     for (int i = 0; i < 0x100; i++) {
-        if (elm->ChkUsed() && !elm->m_bgw_base_ptr->ChkNotReady()) {
+        if (elm->ChkUsed() && BGW_PTR_OK(elm->m_bgw_base_ptr) && !elm->m_bgw_base_ptr->ChkNotReady()) {
             if (!proof->ChkSameActorPid(elm->m_actor_id)) {
                 dBgW_Base* pbgw = elm->m_bgw_base_ptr;
 
@@ -1517,7 +1529,7 @@ bool dBgS::SplGrpChk(dBgS_SplGrpChk* pspl) {
 
     cBgS_ChkElm* elm = m_chk_element;
     for (int i = 0; i < 0x100; i++) {
-        if (elm->ChkUsed() && !elm->m_bgw_base_ptr->ChkNotReady()) {
+        if (elm->ChkUsed() && BGW_PTR_OK(elm->m_bgw_base_ptr) && !elm->m_bgw_base_ptr->ChkNotReady()) {
             if (!pspl->ChkSameActorPid(elm->m_actor_id)) {
                 dBgW_Base* pbgw = elm->m_bgw_base_ptr;
 
@@ -1567,7 +1579,7 @@ bool dBgS::SphChk(dBgS_SphChk* psphchk, void* param_1) {
 
     cBgS_ChkElm* elm = m_chk_element;
     for (int i = 0; i < 0x100; i++) {
-        if (elm->ChkUsed() && !elm->m_bgw_base_ptr->ChkNotReady()) {
+        if (elm->ChkUsed() && BGW_PTR_OK(elm->m_bgw_base_ptr) && !elm->m_bgw_base_ptr->ChkNotReady()) {
             if (!psphchk->ChkSameActorPid(elm->m_actor_id)) {
                 dBgW_Base* pbgw = elm->m_bgw_base_ptr;
 

@@ -56,6 +56,7 @@
 #ifdef TARGET_PC
 #include <csetjmp>
 extern "C" void pc_crash_set_jmpbuf(jmp_buf*);
+extern "C" jmp_buf* pc_crash_get_jmpbuf(void);
 extern "C" uintptr_t pc_crash_get_addr(void);
 #endif
 
@@ -5080,11 +5081,29 @@ int daAlink_c::create() {
         }
     }
 
+#ifdef TARGET_PC
+    {
+        jmp_buf crrBuf;
+        jmp_buf* prev = pc_crash_get_jmpbuf();
+        pc_crash_set_jmpbuf(&crrBuf);
+        if (setjmp(crrBuf) != 0) {
+            fprintf(stderr, "[ALINK] CrrPos crashed in create (collision data corrupt) — skipping\n");
+        } else {
+            mLinkAcch.CrrPos(dComIfG_Bgsp());
+        }
+        pc_crash_set_jmpbuf(prev);
+    }
+#else
     mLinkAcch.CrrPos(dComIfG_Bgsp());
+#endif
     void* portalActor = NULL;
 
     BOOL noGround = mLinkAcch.GetGroundH() == -G_CM3D_F_INF;
+#ifdef TARGET_PC
+    BOOL missingMoveBG = startMode == 14 && mLinkAcch.m_gnd.ChkSetInfo() && !dComIfG_Bgsp().ChkMoveBG(mLinkAcch.m_gnd);
+#else
     BOOL missingMoveBG = startMode == 14 && !dComIfG_Bgsp().ChkMoveBG(mLinkAcch.m_gnd);
+#endif
     BOOL missingPortal =
         startPoint == -4 && !(portalActor = fopAcIt_Judge((fopAcIt_JudgeFunc)daAlink_searchPortal, &current.pos));
     BOOL missingRideActor = mRideActorID != fpcM_ERROR_PROCESS_ID_e && !fopAcM_SearchByID(mRideActorID);
@@ -5102,7 +5121,7 @@ int daAlink_c::create() {
 #ifdef TARGET_PC
     /* Opening scene currently lacks some legacy MoveBG resources on PC.
      * Don't deadlock Link creation waiting for ground/horse in this one startup path. */
-    if (checkStageName("F_SP102") && dComIfGp_getStartStagePoint() == 100) {
+    if ((checkStageName("F_SP102") || checkStageName("F_SP127")) && dComIfGp_getStartStagePoint() == 100) {
         noGround = FALSE;
         missingMoveBG = FALSE;
         missingHorse = FALSE;

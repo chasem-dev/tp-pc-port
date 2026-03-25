@@ -1,6 +1,8 @@
 /* pc_mtx.cpp - Matrix math replacing PPC paired-singles assembly */
 #include "pc_platform.h"
 #include <math.h>
+#include <stdint.h>
+#define BAD_PTR(p) ((uintptr_t)(p) < 0x10000)
 
 extern "C" {
 
@@ -17,10 +19,12 @@ void PSMTXIdentity(Mtx m) {
 }
 
 void PSMTXCopy(const Mtx src, Mtx dst) {
+    if (BAD_PTR(src) || BAD_PTR(dst)) return;
     memcpy(dst, src, sizeof(Mtx));
 }
 
 void PSMTXConcat(const Mtx a, const Mtx b, Mtx ab) {
+    if (BAD_PTR(a) || BAD_PTR(b) || BAD_PTR(ab)) { if (!BAD_PTR(ab)) PSMTXIdentity(ab); return; }
     Mtx tmp;
     for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 4; j++) {
@@ -32,6 +36,7 @@ void PSMTXConcat(const Mtx a, const Mtx b, Mtx ab) {
 }
 
 u32 PSMTXInverse(const Mtx src, Mtx inv) {
+    if ((uintptr_t)src < 0x10000 || (uintptr_t)inv < 0x10000) { if ((uintptr_t)inv >= 0x10000) PSMTXIdentity(inv); return 0; }
     float det = src[0][0]*(src[1][1]*src[2][2]-src[1][2]*src[2][1])
               - src[0][1]*(src[1][0]*src[2][2]-src[1][2]*src[2][0])
               + src[0][2]*(src[1][0]*src[2][1]-src[1][1]*src[2][0]);
@@ -73,6 +78,7 @@ void PSMTXInvXpose(const Mtx src, Mtx xpose) {
 }
 
 void PSMTXMultVec(const Mtx m, const Vec* src, Vec* dst) {
+    if (BAD_PTR(m) || BAD_PTR(src) || BAD_PTR(dst)) { if (!BAD_PTR(dst)) { dst->x=dst->y=dst->z=0; } return; }
     float x = m[0][0]*src->x + m[0][1]*src->y + m[0][2]*src->z + m[0][3];
     float y = m[1][0]*src->x + m[1][1]*src->y + m[1][2]*src->z + m[1][3];
     float z = m[2][0]*src->x + m[2][1]*src->y + m[2][2]*src->z + m[2][3];
@@ -80,6 +86,7 @@ void PSMTXMultVec(const Mtx m, const Vec* src, Vec* dst) {
 }
 
 void PSMTXMultVecSR(const Mtx m, const Vec* src, Vec* dst) {
+    if (BAD_PTR(m) || BAD_PTR(src) || BAD_PTR(dst)) { if (!BAD_PTR(dst)) { dst->x=dst->y=dst->z=0; } return; }
     float x = m[0][0]*src->x + m[0][1]*src->y + m[0][2]*src->z;
     float y = m[1][0]*src->x + m[1][1]*src->y + m[1][2]*src->z;
     float z = m[2][0]*src->x + m[2][1]*src->y + m[2][2]*src->z;

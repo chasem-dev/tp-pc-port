@@ -1,6 +1,8 @@
 /* pc_gx_tev.cpp - TEV shader management */
 #include "pc_gx_internal.h"
 #include <dolphin/gx/GXEnum.h>
+#include <dolphin/vi.h>
+#include <cstdlib>
 
 static GLuint default_shader = 0;
 static GLuint simple_shader = 0;
@@ -62,6 +64,14 @@ static GLuint load_shader_from_file(const char* vert_path, const char* frag_path
 
     glDeleteShader(vs);
     glDeleteShader(fs);
+
+    /* Verify attribute locations match expectations */
+    GLint pos_loc = glGetAttribLocation(prog, "a_position");
+    GLint nrm_loc = glGetAttribLocation(prog, "a_normal");
+    GLint col_loc = glGetAttribLocation(prog, "a_color0");
+    GLint tc_loc = glGetAttribLocation(prog, "a_texcoord0");
+    fprintf(stderr, "[TEV] Attribute locs: pos=%d nrm=%d col=%d tc=%d\n",
+            pos_loc, nrm_loc, col_loc, tc_loc);
     return prog;
 }
 
@@ -113,19 +123,33 @@ static const char* simple_frag =
     "in vec2 v_texcoord0;\n"
     "uniform sampler2D u_texture0;\n"
     "uniform int u_use_texture0;\n"
+    "uniform vec4 u_simple_kmod;\n"
+    "uniform int u_simple_use_kmod;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
     "    vec4 tex = vec4(1.0);\n"
     "    if (u_use_texture0 != 0) tex = texture(u_texture0, v_texcoord0);\n"
-    "    fragColor = tex * v_color;\n"
+    "    vec4 col = tex * v_color;\n"
+    "    if (u_simple_use_kmod != 0) col.rgb *= u_simple_kmod.rgb;\n"
+    "    fragColor = col;\n"
     "}\n";
 
+static bool pc_force_simple_shader() {
+    static int cached = -1;
+    if (cached != -1) {
+        return cached != 0;
+    }
+    const char* env = getenv("TP_FORCE_SIMPLE_SHADER");
+    /* Default to full TEV shader. The Metal pipeline warmup pre-compiles
+     * the needed state variants so runtime draws don't trigger the compiler.
+     * Set TP_FORCE_SIMPLE_SHADER=1 to fall back to the passthrough shader. */
+    cached = (env != NULL && atoi(env) != 0) ? 1 : 0;
+    return cached != 0;
+}
+
 static bool use_simple_shader(const PCGXState* state) {
-    /* Always use the full TEV shader — the simple shader doesn't handle
-     * TEV color/alpha operations correctly (e.g., intensity textures with
-     * TEV-applied colors for the Nintendo logo). */
     (void)state;
-    return false;
+    return pc_force_simple_shader();
 }
 
 void pc_gx_tev_init(void) {
@@ -147,17 +171,22 @@ void pc_gx_tev_init(void) {
         glDeleteShader(fs);
     }
 
-    /* Try to load the full TEV shader from file */
-    default_shader = load_shader_from_file("shaders/default.vert", "shaders/default.frag");
-    if (!default_shader) {
-        /* Try relative to executable */
-        default_shader = load_shader_from_file("build/bin/shaders/default.vert", "build/bin/shaders/default.frag");
+    /* Try to load the full TEV shader from file — check multiple paths */
+    static const char* shader_paths[][2] = {
+        {"pc/shaders/default.vert",            "pc/shaders/default.frag"},
+        {"pc/build/bin/shaders/default.vert",  "pc/build/bin/shaders/default.frag"},
+        {"shaders/default.vert",               "shaders/default.frag"},
+        {"build/bin/shaders/default.vert",     "build/bin/shaders/default.frag"},
+    };
+    for (int pi = 0; pi < 4 && !default_shader; pi++) {
+        default_shader = load_shader_from_file(shader_paths[pi][0], shader_paths[pi][1]);
+        if (default_shader) {
+            fprintf(stderr, "[TEV] Full TEV shader loaded from '%s'\n", shader_paths[pi][0]);
+        }
     }
     if (!default_shader) {
-        fprintf(stderr, "[TEV] WARNING: Full TEV shader not found, falling back to simple\n");
+        fprintf(stderr, "[TEV] WARNING: shader not found, falling back to simple\n");
         default_shader = simple_shader;
-    } else {
-        fprintf(stderr, "[TEV] Full TEV shader compiled OK\n");
     }
     glUseProgram(default_shader);
     pc_gx_cache_uniform_locations(default_shader);
@@ -178,6 +207,10 @@ bool pc_gx_tev_is_simple_shader(GLuint shader) {
 
 GLuint pc_gx_tev_get_default_shader(void) {
     return default_shader;
+}
+
+GLuint pc_gx_tev_get_simple_shader(void) {
+    return simple_shader;
 }
 
 GLuint pc_gx_tev_get_shader(PCGXState* state) {

@@ -40,7 +40,11 @@ Z2SoundHandlePool* Z2SoundHandles::getHandleSoundID(JAISoundID soundID) {
     return NULL;
 }
 
+#ifdef TARGET_PC
+Z2SoundHandlePool* Z2SoundHandles::getHandleUserData(uintptr_t userData) {
+#else
 Z2SoundHandlePool* Z2SoundHandles::getHandleUserData(u32 userData) {
+#endif
     JSULink<Z2SoundHandlePool>* i;
     for (i = getFirst(); i != NULL; i = i->getNext()) {
         Z2SoundHandlePool* handle = i->getObject();

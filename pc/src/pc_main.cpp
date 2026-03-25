@@ -16,6 +16,7 @@
 extern "C" void pc_macos_init(void);
 extern "C" void pc_macos_pump_events(void);
 #endif
+#include <cstdlib>
 
 /* prefer discrete GPU on laptops */
 #ifdef _WIN32
@@ -111,6 +112,7 @@ static LONG WINAPI pc_veh_handler(PEXCEPTION_POINTERS ep) {
 #else
 static void pc_signal_handler(int sig, siginfo_t* info, void* ucontext) {
     (void)ucontext;
+    bool is_main_thread = (g_pc_main_pthread_valid && pthread_equal(pthread_self(), g_pc_main_pthread));
     /* longjmp if crash protection is active */
     if (pc_active_jmpbuf != NULL) {
         pc_last_crash_addr = (uintptr_t)info->si_addr;
@@ -118,12 +120,31 @@ static void pc_signal_handler(int sig, siginfo_t* info, void* ucontext) {
         pc_active_jmpbuf = NULL;
         longjmp(*buf, 1);
     }
-    /* Background thread crash — absorb by returning.
-     * VI callback fix prevents most Metal crashes, but some may still
-     * occur from the immediate archive finalization in dRes_info_c::set. */
-    if (!g_pc_main_pthread_valid || !pthread_equal(pthread_self(), g_pc_main_pthread)) {
+    /* Ignore non-main-thread crashes here; actor-level guards handle recovery.
+     * Printing backtraces from event threads can recurse into signal faults. */
+    if (!is_main_thread) {
         return;
     }
+#ifdef __APPLE__
+    /* Optional host-signal suppression for debugging noisy macOS runs. */
+    const char* ignoreHostSigbus = std::getenv("TP_IGNORE_HOST_SIGBUS");
+    if (sig == SIGBUS && ignoreHostSigbus != NULL && std::atoi(ignoreHostSigbus) != 0) {
+        static int s_ignored_sigbus = 0;
+        if (s_ignored_sigbus++ < 32) {
+            fprintf(stderr, "[PC] ignored host SIGBUS addr=%p\n", info ? info->si_addr : NULL);
+            fflush(stderr);
+        }
+        return;
+    }
+#endif
+    /* Print crash info before re-raising */
+    fprintf(stderr, "\n[PC] CRASH: signal=%d addr=%p\n", sig, info->si_addr);
+    /* Try to get a backtrace */
+    void* frames[32];
+    int nframes = backtrace(frames, 32);
+    backtrace_symbols_fd(frames, nframes, 2);
+    fprintf(stderr, "\n");
+    fflush(stderr);
     signal(sig, SIG_DFL);
     raise(sig);
 }
@@ -151,6 +172,7 @@ void pc_crash_protection_init(void) {
 }
 
 void pc_crash_set_jmpbuf(jmp_buf* buf) { pc_active_jmpbuf = buf; }
+jmp_buf* pc_crash_get_jmpbuf(void) { return pc_active_jmpbuf; }
 uintptr_t pc_crash_get_addr(void) { return pc_last_crash_addr; }
 
 /* GL draw call timeout — set an itimer that fires SIGALRM if a GL call hangs */
@@ -265,7 +287,36 @@ void pc_platform_shutdown(void) {
     SDL_Quit();
 }
 
+static int s_screenshot_frame = 0;
+
 extern "C" void pc_platform_swap_buffers(void) {
+    s_screenshot_frame++;
+
+
+
+    /* Auto-screenshot */
+    if (s_screenshot_frame == 500 || s_screenshot_frame == 1000 || s_screenshot_frame == 1500) {
+        glReadBuffer(GL_BACK);
+        int w = g_pc_window_w, h = g_pc_window_h;
+        unsigned char* pixels = (unsigned char*)malloc(w * h * 3);
+        if (pixels) {
+            glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+            char path[128];
+            snprintf(path, sizeof(path), "/tmp/tp_frame_%d.ppm", s_screenshot_frame);
+            FILE* f = fopen(path, "wb");
+            if (f) {
+                fprintf(f, "P6\n%d %d\n255\n", w, h);
+                for (int y = h - 1; y >= 0; y--) {
+                    fwrite(pixels + y * w * 3, 1, w * 3, f);
+                }
+                fclose(f);
+                fprintf(stderr, "[PC] Screenshot saved: %s (%dx%d)\n", path, w, h);
+            }
+            free(pixels);
+        }
+        glReadBuffer(GL_BACK);
+    }
+
     SDL_GL_SwapWindow(g_pc_window);
 }
 
@@ -316,27 +367,12 @@ extern "C" void pc_platform_begin_frame(void) {
 }
 
 extern "C" void pc_platform_pump_events_safe(void) {
-    /* Pump events less frequently — every-frame pumping triggers SkyLight
-     * NSEventThread crashes on macOS ARM64. Every 30 frames keeps the
-     * window responsive without overwhelming the event system. */
+    /* Never call SDL_PollEvent here on macOS.
+     * SDL_PollEvent internally pumps Cocoa and can crash in AppKit/CoreText
+     * under the current OpenGL->Metal translation path. We only drain events
+     * already queued by SDL to keep input/window state current. */
     if (!g_pc_window) return;
-    static u32 s_pump_frame = 0;
-    s_pump_frame++;
-    if (s_pump_frame % 30 != 0) return;
-    SDL_Event ev;
-    while (SDL_PollEvent(&ev)) {
-        switch (ev.type) {
-            case SDL_QUIT: g_pc_running = 0; break;
-            case SDL_WINDOWEVENT:
-                if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)
-                    pc_platform_update_window_size();
-                break;
-            case SDL_KEYDOWN:
-                if (ev.key.keysym.sym == SDLK_ESCAPE) g_pc_running = 0;
-                if (ev.key.keysym.sym == SDLK_F3 && !ev.key.repeat) g_pc_no_framelimit ^= 1;
-                break;
-        }
-    }
+    pc_platform_drain_event_queue();
 }
 
 extern "C" void pc_platform_poll_events_only(void) {

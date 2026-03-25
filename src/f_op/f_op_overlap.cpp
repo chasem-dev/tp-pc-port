@@ -4,6 +4,9 @@
  */
 
 #include "f_op/f_op_overlap.h"
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
 #include "JSystem/JKernel/JKRExpHeap.h"
 #include "d/d_error_msg.h"
 #include "f_pc/f_pc_manager.h"
@@ -15,6 +18,12 @@ static s32 fopOvlp_Draw(void* i_this) {
 }
 
 static s32 fopOvlp_Execute(void* i_this) {
+#ifdef TARGET_PC
+    static int s_exec_log = 0;
+    if (s_exec_log++ < 20) {
+        fprintf(stderr, "[OVLPFRAME] Execute: proc=%d this=%p\n", fpcM_GetProfName(i_this), i_this);
+    }
+#endif
     s32 ret = fpcMtd_Execute(&((overlap_task_class*)i_this)->submethod->base, i_this);
 #if VERSION == VERSION_SHIELD || PLATFORM_WII
     dConnectErrorMsg_c::disable();
@@ -53,9 +62,20 @@ static s32 fopOvlp_Create(void* i_this) {
             mDoExt_addSafeZeldaHeapSize(-mDoExt_getZeldaHeap()->getSize(i_this));
         }
 #endif
+#ifdef TARGET_PC
+        fprintf(stderr, "[OVLPFRAME] Create first: proc=%d this=%p submethod=%p\n",
+                fpcM_GetProfName(i_this), i_this, (void*)a_this->submethod);
+#endif
     }
 
     s32 ret = fpcMtd_Create(&a_this->submethod->base, a_this);
+#ifdef TARGET_PC
+    static int s_create_log = 0;
+    if (s_create_log++ < 20) {
+        fprintf(stderr, "[OVLPFRAME] Create: proc=%d ret=%d this=%p\n",
+                fpcM_GetProfName(i_this), ret, i_this);
+    }
+#endif
     return ret;
 }
 

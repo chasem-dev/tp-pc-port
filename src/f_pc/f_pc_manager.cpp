@@ -20,13 +20,50 @@
 #include "f_pc/f_pc_pause.h"
 #include "f_pc/f_pc_priority.h"
 #include "m_Do/m_Do_controller_pad.h"
+#ifdef TARGET_PC
+#include <csetjmp>
+#include <cstdlib>
+extern "C" void pc_crash_set_jmpbuf(jmp_buf*);
+extern "C" uintptr_t pc_crash_get_addr(void);
+#endif
 
 void fpcM_Draw(void* i_proc) {
+#ifdef TARGET_PC
+    base_process_class* proc = (base_process_class*)i_proc;
+    static int s_abort_draw_crash =
+        ([]() -> int { const char* v = std::getenv("TP_DRAW_CRASH_ABORT"); return v ? 1 : 0; })();
+    if (s_abort_draw_crash) {
+        fpcDw_Execute(proc);
+        return;
+    }
+    jmp_buf buf;
+    pc_crash_set_jmpbuf(&buf);
+    if (setjmp(buf) != 0) {
+        pc_crash_set_jmpbuf(NULL);
+        static int s_draw_crash = 0;
+        if (s_draw_crash++ < 20 || proc->profname == 737) {
+            fprintf(stderr, "[fpcM] Draw crashed for proc name=%d at 0x%lx — disabling draw\n",
+                    proc->profname, (unsigned long)pc_crash_get_addr());
+        }
+        return;
+    }
+    fpcDw_Execute(proc);
+    pc_crash_set_jmpbuf(NULL);
+#else
     fpcDw_Execute((base_process_class*)i_proc);
+#endif
 }
 
 int fpcM_DrawIterater(fpcM_DrawIteraterFunc i_drawIterFunc) {
+#ifdef TARGET_PC
+    /* Iterate ALL layers (root + children) so play scene actors in child
+     * layers get their Draw called. The original code only iterated the
+     * root layer, relying on the overlap system to propagate draws, but
+     * our overlap/scene transition doesn't fully handle this on PC yet. */
+    return fpcLyIt_All((fpcLyIt_OnlyHereFunc)i_drawIterFunc, NULL);
+#else
     return fpcLyIt_OnlyHere(fpcLy_RootLayer(), (fpcLyIt_OnlyHereFunc)i_drawIterFunc, NULL);
+#endif
 }
 
 int fpcM_Execute(void* i_proc) {

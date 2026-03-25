@@ -12,6 +12,9 @@
 #include "f_pc/f_pc_stdcreate_req.h"
 #include "f_pc/f_pc_manager.h"
 #include "f_pc/f_pc_debug_sv.h"
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
 
 void fpcNdRq_RequestQTo(node_create_request* i_request) {
     fpcLy_CreatedMesg(i_request->layer);
@@ -28,6 +31,19 @@ void fpcNdRq_ToRequestQ(node_create_request* i_request) {
 }
 
 int fpcNdRq_phase_IsCreated(node_create_request* i_request) {
+#ifdef TARGET_PC
+    if (i_request->name == fpcNm_MENU_SCENE_e || i_request->name == fpcNm_OPENING_SCENE_e) {
+        const char* sceneName = (i_request->name == fpcNm_MENU_SCENE_e) ? "MENU" : "OPENING";
+        static int s_scene_iscreated_log = 0;
+        if (s_scene_iscreated_log++ < 80) {
+            fprintf(stderr, "[NDRQ] %s IsCreated: creating_id=%u creating=%d exist=%d\n",
+                    sceneName,
+                    (unsigned)i_request->creating_id,
+                    fpcCtRq_IsCreatingByID(i_request->creating_id),
+                    fpcEx_IsExist(i_request->creating_id));
+        }
+    }
+#endif
     if (fpcCtRq_IsCreatingByID(i_request->creating_id) == TRUE) {
 #if DEBUG
         if (i_request->unk_0x64-- <= 0) {
@@ -51,6 +67,14 @@ int fpcNdRq_phase_Create(node_create_request* i_request) {
         fpcSCtRq_Request(i_request->layer, i_request->name,
                          (stdCreateFunc)i_request->create_req_methods->post_method, i_request,
                          i_request->data);
+#ifdef TARGET_PC
+    if (i_request->name == fpcNm_MENU_SCENE_e || i_request->name == fpcNm_OPENING_SCENE_e) {
+        const char* sceneName = (i_request->name == fpcNm_MENU_SCENE_e) ? "MENU" : "OPENING";
+        fprintf(stderr, "[NDRQ] %s Create: creating_id=%u layer=%p node_id=%u\n",
+                sceneName, (unsigned)i_request->creating_id, (void*)i_request->layer,
+                (unsigned)i_request->node_proc.id);
+    }
+#endif
     if (i_request->creating_id == fpcM_ERROR_PROCESS_ID_e) {
         return cPhs_UNK3_e;
     }

@@ -9,6 +9,11 @@
 #include "f_pc/f_pc_node.h"
 #include "f_pc/f_pc_pause.h"
 #include "f_pc/f_pc_searcher.h"
+#ifdef TARGET_PC
+#include <csetjmp>
+extern "C" void pc_crash_set_jmpbuf(jmp_buf*);
+extern "C" uintptr_t pc_crash_get_addr(void);
+#endif
 
 base_process_class* fpcEx_Search(fpcLyIt_JudgeFunc i_judgeFunc, void* i_data) {
     return (base_process_class*)fpcLyIt_AllJudge(i_judgeFunc, i_data);
@@ -33,11 +38,47 @@ int fpcEx_Execute(base_process_class* i_proc) {
     if (i_proc->state.init_state != 2 || fpcPause_IsEnable(i_proc, 1) == TRUE)
         return 0;
 
+#ifdef TARGET_PC
+    /* Catch crashes in individual actor Execute methods so one bad actor
+     * doesn't prevent all subsequent actors from running. This is necessary
+     * because many stage actors have un-swapped 64-bit data that causes
+     * SIGBUS/SIGSEGV. Rather than crashing the whole game, we disable the
+     * offending actor and continue. */
+    jmp_buf buf;
+    pc_crash_set_jmpbuf(&buf);
+    if (setjmp(buf) != 0) {
+        pc_crash_set_jmpbuf(NULL);
+        static int s_crash_log = 0;
+        if (s_crash_log++ < 20) {
+            fprintf(stderr, "[fpcEx] Execute crashed for proc type=%d name=%d at 0x%lx — disabling\n",
+                    i_proc->type, i_proc->profname, (unsigned long)pc_crash_get_addr());
+        }
+        /* Skip this frame but DON'T permanently disable — scenes and critical
+         * actors need to keep running even after a transient crash. */
+        /* i_proc->state.init_state = 3; — removed: was killing play scene */
+        return 0;
+    }
+    int result = fpcBs_Execute(i_proc);
+    pc_crash_set_jmpbuf(NULL);
+    return result;
+#else
     return fpcBs_Execute(i_proc);
+#endif
 }
 
 int fpcEx_ToLineQ(base_process_class* i_proc) {
-    base_process_class* process = &i_proc->layer_tag.layer->process_node->base;
+    base_process_class* process = NULL;
+
+#ifdef TARGET_PC
+    if (i_proc->layer_tag.layer->layer_id != fpcLy_ROOT_e) {
+        if (i_proc->layer_tag.layer->process_node == NULL) {
+            return 0;
+        }
+        process = &i_proc->layer_tag.layer->process_node->base;
+    }
+#else
+    process = &i_proc->layer_tag.layer->process_node->base;
+#endif
 
     if (i_proc->layer_tag.layer->layer_id == fpcLy_ROOT_e || cTg_IsUse(&process->line_tag_.base) == TRUE) {
         int var_r28 = i_proc->priority.current_info.list_id;
@@ -78,7 +119,7 @@ int fpcEx_ToExecuteQ(base_process_class* i_proc) {
         fpcEx_ToLineQ(i_proc);
         return 1;
     }
-    
+
     return 0;
 }
 

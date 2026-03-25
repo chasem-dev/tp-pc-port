@@ -9,6 +9,7 @@
 #include "f_op/f_op_overlap_req.h"
 #include "f_op/f_op_scene_mng.h"
 #include "f_op/f_op_scene_pause.h"
+#include "d/d_com_inf_game.h"
 
 // making it not an array put it in .bss
 static overlap_request_class* l_fopOvlpM_overlap[1] = {NULL};
@@ -48,6 +49,11 @@ void fopOvlpM_ToldAboutID(fpc_ProcID i_sceneId) {
 }
 
 int fopOvlpM_IsPeek() {
+#ifdef TARGET_PC
+    if (strcmp(dComIfGp_getStartStageName(), "F_SP102") == 0 && dComIfGp_getStartStagePoint() == 100) {
+        return FALSE;
+    }
+#endif
     if (l_fopOvlpM_overlap[0] != NULL) {
         return l_fopOvlpM_overlap[0]->field_0x8;
     }

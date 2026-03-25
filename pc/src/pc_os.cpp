@@ -389,7 +389,7 @@ struct PCMsgQueueEntry {
     pthread_cond_t cond_recv;
     int active;
 };
-#define PC_MAX_MSG_QUEUES 32
+#define PC_MAX_MSG_QUEUES 256
 static PCMsgQueueEntry pc_msg_queues[PC_MAX_MSG_QUEUES];
 static pthread_mutex_t pc_mq_table_mtx = PTHREAD_MUTEX_INITIALIZER;
 
@@ -498,10 +498,47 @@ int OSJamMessage(OSMessageQueue* mq, void* msg, s32 flags) {
     return 1;
 }
 
-/* --- Interrupt stubs --- */
-int OSDisableInterrupts(void) { return 0; }
-int OSEnableInterrupts(void) { return 0; }
-int OSRestoreInterrupts(int level) { (void)level; return 0; }
+/* --- Interrupt emulation ---
+ * Many GX/GD/J3D paths rely on OSDisableInterrupts to guard global state
+ * (e.g. __GDCurrentDL). On PC we map this to a process-wide recursive mutex. */
+static pthread_once_t pc_irq_once = PTHREAD_ONCE_INIT;
+static pthread_mutex_t pc_irq_mtx;
+static thread_local int pc_irq_depth = 0;
+
+static void pc_irq_init(void) {
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&pc_irq_mtx, &attr);
+    pthread_mutexattr_destroy(&attr);
+}
+
+int OSDisableInterrupts(void) {
+    pthread_once(&pc_irq_once, pc_irq_init);
+    int was_enabled = (pc_irq_depth == 0);
+    pthread_mutex_lock(&pc_irq_mtx);
+    pc_irq_depth++;
+    return was_enabled;
+}
+
+int OSEnableInterrupts(void) {
+    pthread_once(&pc_irq_once, pc_irq_init);
+    int was_enabled = (pc_irq_depth == 0);
+    if (pc_irq_depth > 0) {
+        pc_irq_depth--;
+        pthread_mutex_unlock(&pc_irq_mtx);
+    }
+    return was_enabled;
+}
+
+int OSRestoreInterrupts(int level) {
+    pthread_once(&pc_irq_once, pc_irq_init);
+    if (level && pc_irq_depth > 0) {
+        pc_irq_depth--;
+        pthread_mutex_unlock(&pc_irq_mtx);
+    }
+    return 0;
+}
 
 /* --- Cache stubs --- */
 void DCFlushRange(void* addr, u32 nBytes) { (void)addr; (void)nBytes; }
@@ -529,25 +566,26 @@ void* OSAllocFromHeap(s32 heap, u32 size) { (void)heap; return malloc(size); }
 void OSFreeToHeap(s32 heap, void* ptr) { (void)heap; free(ptr); }
 
 /* --- OSReport --- */
+static void pc_safe_report(FILE* stream, const char* msg) {
+    if (msg == NULL) {
+        return;
+    }
+    /* On PC, some legacy OSReport callsites pass non-literal data as format
+     * strings. Print as raw text to avoid vararg stack corruption/spam. */
+    size_t n = strnlen(msg, 2048);
+    fwrite(msg, 1, n, stream);
+}
+
 void OSReport(const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    vprintf(fmt, args);
-    va_end(args);
+    pc_safe_report(stdout, fmt);
 }
 
 void OSReport_Error(const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
+    pc_safe_report(stderr, fmt);
 }
 
 void OSReport_Warning(const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    vprintf(fmt, args);
-    va_end(args);
+    pc_safe_report(stdout, fmt);
 }
 
 void OSReportInit(void) {}

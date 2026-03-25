@@ -18,11 +18,21 @@
 #include "d/d_path.h"
 #include "d/d_s_play.h"
 #include "d/d_debug_viewer.h"
+#ifdef TARGET_PC
+#include <csetjmp>
+#include <cstdio>
+extern "C" void pc_crash_set_jmpbuf(jmp_buf* buf);
+extern "C" jmp_buf* pc_crash_get_jmpbuf(void);
+extern "C" uintptr_t pc_crash_get_addr(void);
+#endif
 #include "f_op/f_op_actor_mng.h"
 #include "f_op/f_op_camera_mng.h"
 #include "f_op/f_op_scene_mng.h"
 #include "m_Do/m_Do_lib.h"
 #include <cstring>
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
 
 #define MAKE_ITEM_PARAMS(itemNo, itemBitNo, param_2, param_3)                                      \
     ((itemNo & 0xFF) << 0x0 | (itemBitNo & 0xFF) << 0x8 | (param_2 & 0xFF) << 0x10 | (param_3 & 0xF) << 0x18)
@@ -128,14 +138,14 @@ fopAc_ac_c* fopAcM_FastCreate(s16 i_procName, FastCreateReqFunc i_createFunc, vo
     return (fopAc_ac_c*)fpcM_FastCreate(i_procName, i_createFunc, i_createData, i_append);
 }
 
-void fopAcM_setStageLayer(void* i_proc) {
+void fopAcM_setStageLayer(fopAc_ac_c* i_proc) {
     scene_class* stageProc = fopScnM_SearchByID(dStage_roomControl_c::getProcID());
     JUT_ASSERT(367, stageProc != NULL);
 
     fpcM_ChangeLayerID(i_proc, fopScnM_LayerID(stageProc));
 }
 
-void fopAcM_setRoomLayer(void* i_proc, int i_roomNo) {
+void fopAcM_setRoomLayer(fopAc_ac_c* i_proc, int i_roomNo) {
     if (i_roomNo >= 0) {
         scene_class* roomProc = fopScnM_SearchByID(dStage_roomControl_c::getStatusProcID(i_roomNo));
         JUT_ASSERT(390, roomProc != NULL);
@@ -256,7 +266,16 @@ fpc_ProcID fopAcM_create(s16 i_procName, u16 i_setId, u32 i_parameters, const cX
         return fpcM_ERROR_PROCESS_ID_e;
     }
 
-    return fpcM_Create(i_procName, i_createFunc, append);
+    fpc_ProcID id = fpcM_Create(i_procName, i_createFunc, append);
+#ifdef TARGET_PC
+    if (i_procName == fpcNm_TITLE_e) {
+        fprintf(stderr,
+                "[ACTORMNG] fopAcM_create TITLE: id=%d setId=%u room=%d params=0x%08x arg=%d\n",
+                (int)id, (unsigned)i_setId, i_roomNo, i_parameters, (int)i_argument);
+        fflush(stderr);
+    }
+#endif
+    return id;
 }
 
 fpc_ProcID fopAcM_create(s16 i_procName, u32 i_parameters, const cXyz* i_pos, int i_roomNo,
@@ -369,7 +388,22 @@ void fopAcM_DeleteHeap(fopAc_ac_c* i_actor) {
 
 s32 fopAcM_callCallback(fopAc_ac_c* i_actor, heapCallbackFunc i_callback, JKRHeap* i_heap) {
     JKRHeap* oldHeap = mDoExt_setCurrentHeap(i_heap);
+#ifdef TARGET_PC
+    jmp_buf cbBuf;
+    jmp_buf* prevCbBuf = pc_crash_get_jmpbuf();
+    pc_crash_set_jmpbuf(&cbBuf);
+    if (setjmp(cbBuf) != 0) {
+        pc_crash_set_jmpbuf(prevCbBuf);
+        fprintf(stderr, "[CREATE] createHeap callback crashed for actor (addr=%p)\n",
+                (void*)pc_crash_get_addr());
+        mDoExt_setCurrentHeap(oldHeap);
+        return 0;
+    }
+#endif
     s32 ret = i_callback(i_actor);
+#ifdef TARGET_PC
+    pc_crash_set_jmpbuf(prevCbBuf);
+#endif
     mDoExt_setCurrentHeap(oldHeap);
     return ret;
 }

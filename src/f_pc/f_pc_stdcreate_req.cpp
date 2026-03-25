@@ -8,11 +8,19 @@
 #include "f_pc/f_pc_node.h"
 #include "f_pc/f_pc_manager.h"
 #include "f_pc/f_pc_debug_sv.h"
+#include "f_pc/f_pc_name.h"
 #include "SSystem/SComponent/c_phase.h"
 #ifdef __REVOLUTION_SDK__
 #include <revolution.h>
 #else
 #include <dolphin.h>
+#endif
+#ifdef TARGET_PC
+#include <csetjmp>
+#include <cstdio>
+extern "C" void pc_crash_set_jmpbuf(jmp_buf* buf);
+extern "C" jmp_buf* pc_crash_get_jmpbuf(void);
+extern "C" uintptr_t pc_crash_get_addr(void);
 #endif
 
 typedef struct standard_create_request_class {
@@ -29,6 +37,15 @@ typedef struct standard_create_request_class {
 
 int fpcSCtRq_phase_Load(standard_create_request_class* i_request) {
     int ret = fpcLd_Load(i_request->process_name);
+#ifdef TARGET_PC
+    if (i_request->process_name == fpcNm_MENU_SCENE_e || i_request->process_name == fpcNm_OPENING_SCENE_e) {
+        const char* sceneName = (i_request->process_name == fpcNm_MENU_SCENE_e) ? "MENU" : "OPENING";
+        static int s_scene_load_log = 0;
+        if (s_scene_load_log++ < 40) {
+            fprintf(stderr, "[SCREQ] %s phase_Load ret=%d\n", sceneName, ret);
+        }
+    }
+#endif
 
     switch (ret) {
     case cPhs_INIT_e:
@@ -46,6 +63,13 @@ int fpcSCtRq_phase_CreateProcess(standard_create_request_class* i_request) {
     fpcLy_SetCurrentLayer(i_request->base.layer);
     i_request->base.process =
         fpcBs_Create(i_request->process_name, i_request->base.id, i_request->process_append);
+#ifdef TARGET_PC
+    if (i_request->process_name == fpcNm_MENU_SCENE_e || i_request->process_name == fpcNm_OPENING_SCENE_e) {
+        const char* sceneName = (i_request->process_name == fpcNm_MENU_SCENE_e) ? "MENU" : "OPENING";
+        fprintf(stderr, "[SCREQ] %s phase_CreateProcess proc=%p id=%u\n",
+                sceneName, (void*)i_request->base.process, (unsigned)i_request->base.id);
+    }
+#endif
 
     if (i_request->base.process == NULL) {
         OS_REPORT("fpcSCtRq_phase_CreateProcess %d\n", i_request->process_name);
@@ -59,7 +83,28 @@ int fpcSCtRq_phase_CreateProcess(standard_create_request_class* i_request) {
 
 int fpcSCtRq_phase_SubCreateProcess(standard_create_request_class* i_request) {
     fpcLy_SetCurrentLayer(i_request->base.layer);
+#ifdef TARGET_PC
+    jmp_buf createBuf;
+    jmp_buf* prevCreateBuf = pc_crash_get_jmpbuf();
+    pc_crash_set_jmpbuf(&createBuf);
+    if (setjmp(createBuf) != 0) {
+        pc_crash_set_jmpbuf(prevCreateBuf);
+        base_process_class* proc = i_request->base.process;
+        fprintf(stderr, "[CREATE] actor %d (type=%d) crashed during create (addr=%p), cancelling\n",
+                proc ? proc->profname : -1, proc ? proc->type : -1,
+                (void*)pc_crash_get_addr());
+        return cPhs_ERROR_e;
+    }
+#endif
     int ret = fpcBs_SubCreate(i_request->base.process);
+#ifdef TARGET_PC
+    if (i_request->process_name == fpcNm_MENU_SCENE_e || i_request->process_name == fpcNm_OPENING_SCENE_e) {
+        const char* sceneName = (i_request->process_name == fpcNm_MENU_SCENE_e) ? "MENU" : "OPENING";
+        fprintf(stderr, "[SCREQ] %s phase_SubCreateProcess ret=%d proc=%p\n",
+                sceneName, ret, (void*)i_request->base.process);
+    }
+    pc_crash_set_jmpbuf(prevCreateBuf);
+#endif
 
 #if DEBUG
     if (ret == 0 && i_request->unk_0x60-- <= 0) {

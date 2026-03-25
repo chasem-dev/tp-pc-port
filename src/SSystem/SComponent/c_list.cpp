@@ -4,7 +4,12 @@
  */
 
 #include "SSystem/SComponent/c_list.h"
+#include "SSystem/SComponent/c_tag.h"
 #include "SSystem/SComponent/c_node.h"
+#if !PLATFORM_GCN
+#include <dlfcn.h>
+#include <stdio.h>
+#endif
 #include <types.h>
 
 void cLs_Init(node_list_class* list) {
@@ -35,6 +40,30 @@ int cLs_SingleCut(node_class* node) {
 }
 
 int cLs_Addition(node_list_class* list, node_class* node) {
+#if !PLATFORM_GCN
+    static unsigned int s_addCount = 0;
+    if (s_addCount < 1024) {
+        s_addCount++;
+        Dl_info info0 = {};
+        Dl_info info1 = {};
+        void* ret0 = __builtin_return_address(0);
+        void* ret1 = __builtin_return_address(1);
+        dladdr(ret0, &info0);
+        dladdr(ret1, &info1);
+        fprintf(stderr,
+                "[LIST] add #%u list=%p head=%p tail=%p node=%p tagData=%p size=%d ret0=%s ret1=%s\n",
+                s_addCount,
+                list,
+                list != NULL ? list->mpHead : NULL,
+                list != NULL ? list->mpTail : NULL,
+                node,
+                node != NULL ? ((create_tag_class*)node)->mpTagData : NULL,
+                list != NULL ? list->mSize : -1,
+                info0.dli_sname != NULL ? info0.dli_sname : "?",
+                info1.dli_sname != NULL ? info1.dli_sname : "?");
+        fflush(stderr);
+    }
+#endif
     if (list->mpTail == NULL) {
         list->mpHead = node;
     } else {

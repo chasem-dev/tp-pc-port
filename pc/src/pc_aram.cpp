@@ -28,7 +28,7 @@ u32 ARGetSize(void) { return PC_ARAM_SIZE; }
 u32 ARGetBaseAddress(void) { return 0; }
 u32 ARGetInternalSize(void) { return PC_ARAM_SIZE; }
 
-void ARStartDMA(u32 type, u32 mainmem_addr, u32 aram_addr, u32 length) {
+void ARStartDMA(u32 type, uintptr_t mainmem_addr, u32 aram_addr, u32 length) {
     (void)type; (void)mainmem_addr; (void)aram_addr; (void)length;
     /* Will implement ARAM<->main memory DMA when needed */
 }
@@ -41,7 +41,7 @@ int ARGetDMAStatus(void) { return 0; /* idle */ }
 void ARQInit(void) {}
 void ARQReset(void) {}
 void ARQPostRequest(void* task, u32 owner, u32 type, u32 priority,
-                    u32 source, u32 dest, u32 length, void* callback) {
+                    uintptr_t source, uintptr_t dest, u32 length, void* callback) {
     (void)task; (void)owner; (void)type; (void)priority;
     (void)source; (void)dest; (void)length; (void)callback;
 }

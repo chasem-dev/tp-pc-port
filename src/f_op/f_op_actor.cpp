@@ -18,6 +18,9 @@
 #include "f_pc/f_pc_debug_sv.h"
 #include "c/c_dylink.h"
 #include "m_Do/m_Do_printf.h"
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
 
 #if DEBUG
 class print_error_check_c {
@@ -215,6 +218,17 @@ u32 fopAc_ac_c::stopStatus;
 static int fopAc_Draw(void* i_this) {
     fopAc_ac_c* actor = (fopAc_ac_c*)i_this;
     int ret = 1;
+#ifdef TARGET_PC
+    static int s_draw_log = 0;
+    if (s_draw_log < 100) {
+        u32 status = actor->actor_status;
+        fprintf(stderr, "[ACTOR] fopAc_Draw: name=%d room=%d status=0x%08x paused=%d\n",
+                fopAcM_GetName(actor), fopAcM_GetRoomNo(actor), status,
+                dComIfGp_isPauseFlag());
+        fflush(stderr);
+        s_draw_log++;
+    }
+#endif
 
     #if DEBUG
     fapGm_HIO_c::startCpuTimer();
@@ -285,6 +299,14 @@ static int fopAc_Draw(void* i_this) {
 static int fopAc_Execute(void* i_this) {
     fopAc_ac_c* actor = (fopAc_ac_c*)i_this;
     int ret = 1;
+#ifdef TARGET_PC
+    static int s_title_exec_log = 0;
+    if (fopAcM_GetName(actor) == fpcNm_TITLE_e && s_title_exec_log++ < 40) {
+        fprintf(stderr, "[ACTOR] fopAc_Execute TITLE actor=%p pauseGp=%d pauseScn=%d pauseA=%d\n",
+                (void*)actor, dComIfGp_isPauseFlag(), dScnPly_c::isPause(), dComIfA_PauseCheck());
+        fflush(stderr);
+    }
+#endif
 
     #if DEBUG
     fapGm_HIO_c::startCpuTimer();
@@ -541,8 +563,18 @@ static int fopAc_Create(void* i_this) {
     #endif
 
     if (ret == cPhs_COMPLEATE_e) {
+#ifdef TARGET_PC
+        fprintf(stderr, "[ACTOR] fopAc_Create complete: name=%d prio=%d actor=%p -> ToDrawQ\n",
+                fopAcM_GetName(actor), fpcM_DrawPriority(actor), (void*)actor);
+        fflush(stderr);
+#endif
         fopDwTg_ToDrawQ(&actor->draw_tag, fpcM_DrawPriority(actor));
     } else if (ret == cPhs_ERROR_e) {
+#ifdef TARGET_PC
+        fprintf(stderr, "[ACTOR] fopAc_Create ERROR: name=%d actor=%p\n",
+                fopAcM_GetName(actor), (void*)actor);
+        fflush(stderr);
+#endif
         fopAcM_OnCondition(actor, 0x10);
     }
 

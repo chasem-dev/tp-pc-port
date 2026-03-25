@@ -13,6 +13,9 @@
 #include "f_pc/f_pc_pause.h"
 #include "f_pc/f_pc_profile.h"
 #include "f_pc/f_pc_debug_sv.h"
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
 #include "Z2AudioLib/Z2AudioMgr.h"
 
 BOOL fpcBs_Is_JustOfType(int i_typeA, int i_typeB) {
@@ -118,10 +121,26 @@ base_process_class* fpcBs_Create(s16 i_profname, fpc_ProcID i_procID, void* i_ap
     u32 size;
 
     pprofile = (process_profile_definition*)fpcPf_Get(i_profname);
+#ifdef TARGET_PC
+    if (i_profname == fpcNm_MENU_SCENE_e || i_profname == fpcNm_OPENING_SCENE_e) {
+        const char* sceneName = (i_profname == fpcNm_MENU_SCENE_e) ? "MENU" : "OPENING";
+        fprintf(stderr, "[BS] %s profile=%p methods=%p size=%u unk=%u name=%d\n",
+                sceneName, (void*)pprofile, pprofile ? (void*)pprofile->methods : NULL,
+                pprofile ? (unsigned)pprofile->process_size : 0,
+                pprofile ? (unsigned)pprofile->unk_size : 0,
+                pprofile ? pprofile->name : -1);
+    }
+#endif
     size = pprofile->process_size + pprofile->unk_size;
 
     pprocess = (base_process_class*)cMl::memalignB(-4, size);
     if (pprocess == NULL) {
+#ifdef TARGET_PC
+        if (i_profname == fpcNm_MENU_SCENE_e || i_profname == fpcNm_OPENING_SCENE_e) {
+            const char* sceneName = (i_profname == fpcNm_MENU_SCENE_e) ? "MENU" : "OPENING";
+            fprintf(stderr, "[BS] %s memalign failed size=%u\n", sceneName, (unsigned)size);
+        }
+#endif
         return NULL;
     }
 

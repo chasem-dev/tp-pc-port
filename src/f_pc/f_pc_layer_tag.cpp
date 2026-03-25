@@ -12,6 +12,10 @@ int fpcLyTg_ToQueue(layer_management_tag_class* i_layer_tag, fpc_ProcID i_layerI
         return 0;
     }
 
+    if (i_layer_tag->layer == NULL) {
+        return 0;
+    }
+
     if (i_layerID != fpcLy_NONE_e && i_layerID != fpcLy_CURRENT_e && i_layer_tag->layer->layer_id != i_layerID) {
         i_layer_tag->layer = fpcLy_Layer(i_layerID);
     }
