@@ -9,7 +9,12 @@
 #include "d/actor/d_a_alink.h"
 #include "d/actor/d_a_crod.h"
 #include "d/d_bg_w.h"
+#include "f_pc/f_pc_layer.h"
+#include "f_pc/f_pc_node.h"
 #include <cstring>
+#ifdef TARGET_PC
+#include <stdio.h>
+#endif
 
 enum daCstaF_Action {
     ACTION_WAIT,
@@ -38,6 +43,46 @@ const daCstaF_c::BckTbl daCstaF_c::m_bckIdxTable[] = {
     {9, 9, 8, 7},
     {9, 9, 8, 7}
 };
+
+#ifdef TARGET_PC
+static void daCstaF_logLayerListState(const daCstaF_c* i_this, const char* phase) {
+    layer_class* layer = i_this->base.base.layer_tag.layer;
+    process_node_class* layer_proc = layer != NULL ? layer->process_node : NULL;
+    fprintf(stderr, "[CSTAF] %s: this=%p layer=%p layer_proc=%p\n", phase, i_this, layer, layer_proc);
+    fflush(stderr);
+    if (layer_proc == NULL) {
+        return;
+    }
+
+    node_list_class* list = &layer_proc->layer_nodelist[3];
+    fprintf(stderr,
+            "[CSTAF] %s: list=%p head=%p tail=%p size=%d\n",
+            phase,
+            list,
+            list->mpHead,
+            list->mpTail,
+            list->mSize);
+
+    node_class* node = list->mpHead;
+    for (int i = 0; node != NULL && i < 4; ++i) {
+        create_tag_class* tag = reinterpret_cast<create_tag_class*>(node);
+        base_process_class* proc = reinterpret_cast<base_process_class*>(tag->mpTagData);
+        fprintf(stderr,
+                "[CSTAF]   node[%d]=%p prev=%p data=%p next=%p tag=%p prof=%d name=%d use=%d\n",
+                i,
+                node,
+                node->mpPrevNode,
+                node->mpData,
+                node->mpNextNode,
+                proc,
+                proc != NULL ? proc->profname : -1,
+                proc != NULL ? proc->name : -1,
+                tag->mbIsUse);
+        node = node->mpNextNode;
+    }
+    fflush(stderr);
+}
+#endif
 
 int daCstaF_c::CreateHeap() {
     struct data {
@@ -128,17 +173,26 @@ int daCstaF_c::create() {
 
     int phase_state = dComIfG_resLoad(&m_phase, m_arcName);
     if (phase_state == cPhs_COMPLEATE_e) {
+#ifdef TARGET_PC
+        daCstaF_logLayerListState(this, "before MoveBGCreate");
+#endif
         phase_state = MoveBGCreate(m_arcName, dzb_id, dBgS_MoveBGProc_TypicalRotY, heap_size, NULL);
         if (phase_state != cPhs_COMPLEATE_e) {
             return phase_state;
         }
 
+#ifdef TARGET_PC
+        daCstaF_logLayerListState(this, "after MoveBGCreate");
+#endif
         mp_modelMorf->setMorf(1.0f);
         m_action = ACTION_WAIT;
         mp_model->setBaseScale(scale);
         mp_modelMorf->play(0, 0);
     
         m_cc_cyl.Set(l_cylSrc);
+#ifdef TARGET_PC
+        daCstaF_logLayerListState(this, "after m_cc_cyl.Set");
+#endif
         m_cc_cyl.SetStts(&m_cc_stts);
         m_cc_cyl.StartCAt(current.pos);
 
@@ -151,6 +205,9 @@ int daCstaF_c::create() {
         m_acchCir[3].SetWall(400.0f, 80.0f);
 
         m_cc_stts.Init(255, 0, this);
+#ifdef TARGET_PC
+        daCstaF_logLayerListState(this, "after m_cc_stts.Init");
+#endif
 
         fopAcM_SetMax(this, 475.0f, 450.0f, 475.0f);
         fopAcM_SetMin(this, -475.0f, 0.0f, -475.0f);
@@ -165,8 +222,17 @@ int daCstaF_c::create() {
         m_brk.setFrame(m_brk.getEndFrame());
 
         m_acch.CrrPos(dComIfG_Bgsp());
+#ifdef TARGET_PC
+        daCstaF_logLayerListState(this, "after m_acch.CrrPos");
+#endif
         setMatrix();
+#ifdef TARGET_PC
+        daCstaF_logLayerListState(this, "after setMatrix");
+#endif
         setRoomInfo();
+#ifdef TARGET_PC
+        daCstaF_logLayerListState(this, "after setRoomInfo");
+#endif
 
         if (mp_coverModel != NULL) {
             J3DModelData* coverModelData = mp_coverModel->getModelData();
@@ -188,9 +254,20 @@ int daCstaF_c::create() {
             m_cc_cyl.SetTgType(0xD87AFDDF);
         }
 
-        m_playerPos = daPy_getLinkPlayerActorClass()->current.pos;
+        daPy_py_c* player = daPy_getLinkPlayerActorClass();
+        if (player != NULL) {
+            m_playerPos = player->current.pos;
+        } else {
+#ifdef TARGET_PC
+            fprintf(stderr, "[CSTAF] create: no player actor, using self pos for m_playerPos\n");
+#endif
+            m_playerPos = current.pos;
+        }
         m_poly_eff.init(&m_acch, 30.0f, m_cc_cyl.GetH());
         m_sound.init(&current.pos, &eyePos, 4, 1);
+#ifdef TARGET_PC
+        daCstaF_logLayerListState(this, "after final init");
+#endif
     }
 
     return phase_state;
@@ -236,12 +313,34 @@ void daCstaF_c::setMatrix() {
 
     mDoMtx_stack_c::transS(current.pos);
     mDoMtx_stack_c::ZXYrotM(shape_angle);
+#ifdef TARGET_PC
+    if (!mp_model) { fprintf(stderr, "[CSTAF] setMatrix: mp_model is NULL!\n"); return; }
+#endif
     mp_model->setBaseTRMtx(mDoMtx_stack_c::get());
+#ifdef TARGET_PC
+    if (!mp_modelMorf) { fprintf(stderr, "[CSTAF] setMatrix: mp_modelMorf is NULL!\n"); return; }
+    fprintf(stderr, "[CSTAF] setMatrix: calling modelCalc (model=%p morf=%p)\n", (void*)mp_model, (void*)mp_modelMorf);
+#endif
     mp_modelMorf->modelCalc();
+#ifdef TARGET_PC
+    fprintf(stderr, "[CSTAF] setMatrix: modelCalc done, calling getAnmMtx(0)\n");
+#endif
 
     attention_info.position.set(current.pos.x, current.pos.y + fieldLocalBallPos.y, current.pos.z);
+#ifdef TARGET_PC
+    {
+        MtxP anmMtx = mp_model->getAnmMtx(0);
+        if (!anmMtx) { fprintf(stderr, "[CSTAF] setMatrix: getAnmMtx(0) returned NULL!\n"); return; }
+        fprintf(stderr, "[CSTAF] setMatrix: mDoMtx_multVec...\n");
+        mDoMtx_multVec(anmMtx, &fieldLocalBallPos, &m_ballPos);
+    }
+#else
     mDoMtx_multVec(mp_model->getAnmMtx(0), &fieldLocalBallPos, &m_ballPos);
+#endif
     eyePos = attention_info.position;
+#ifdef TARGET_PC
+    fprintf(stderr, "[CSTAF] setMatrix: complete\n");
+#endif
 }
 
 void daCstaF_c::posMove() {
@@ -255,7 +354,7 @@ void daCstaF_c::posMove() {
     current.pos.y += speed.y;
 
     daAlink_c* player = daAlink_getAlinkActorClass();
-    if (player->getCopyRodControllActor() == this) {
+    if (player != NULL && player->getCopyRodControllActor() == this) {
         if (!m_isStop) {
             shape_angle.y = player->shape_angle.y;
         }
@@ -289,7 +388,11 @@ void daCstaF_c::posMove() {
         speedF = 0.0f;
     }
 
-    m_playerPos = player->current.pos;
+    if (player != NULL) {
+        m_playerPos = player->current.pos;
+    } else {
+        m_playerPos = current.pos;
+    }
     current.pos += *m_cc_stts.GetCCMoveP();
     m_cc_stts.ClrCcMove();
     m_acch.CrrPos(dComIfG_Bgsp());
@@ -329,7 +432,7 @@ void daCstaF_c::setCollision() {
         m_cc_cyl.SetTgType(0xD87AFDDF);
         
         daAlink_c* player = daAlink_getAlinkActorClass();
-        if (player->getCopyRodControllActor() == this) {
+        if (player != NULL && player->getCopyRodControllActor() == this) {
             ((daCrod_c*)player->getCopyRodActor())->offControll();
         }
     } else {
@@ -345,7 +448,7 @@ static f32 l_cancelOffset = JMAFastSqrt(73225.008f) + 100.0f;
 void daCstaF_c::setAnime() {
     daAlink_c* player = daAlink_getAlinkActorClass();
 
-    fopAc_ac_c* crod_control_actor = player->getCopyRodControllActor();
+    fopAc_ac_c* crod_control_actor = player != NULL ? player->getCopyRodControllActor() : NULL;
     if (crod_control_actor == this) {
         f32 max_control_dist = l_cancelOffset + player->getCopyRodBallDisMax();
         if (player->getCopyRodActor()->current.pos.abs2(player->current.pos) > SQUARE(max_control_dist)) {
@@ -486,8 +589,10 @@ int daCstaF_c::Execute(Mtx** param_0) {
     if (mp_coverModel != NULL) {
         BOOL hide_cover = FALSE;
         if (m_coverVanishFlg) {
-            hide_cover = player->simpleAnmPlay(m_coverBtk);
-            hide_cover &= player->simpleAnmPlay(m_coverBrk);
+            if (player != NULL) {
+                hide_cover = player->simpleAnmPlay(m_coverBtk);
+                hide_cover &= player->simpleAnmPlay(m_coverBrk);
+            }
             fopAcM_seStartCurrentLevel(this, Z2SE_CSTATUE_SEAL_VANISH, 0);
         }
 
@@ -501,7 +606,7 @@ int daCstaF_c::Execute(Mtx** param_0) {
 
     mp_modelMorf->play(poly_sound, m_reverb);
 
-    if (m_action == ACTION_SWING && player->checkCopyRodSwingMode()) {
+    if (m_action == ACTION_SWING && player != NULL && player->checkCopyRodSwingMode()) {
         if (mp_modelMorf->getEndFrame() > player->getBaseAnimeFrame()) {
             mp_modelMorf->setFrame(player->getBaseAnimeFrame());
         } else {
@@ -537,7 +642,7 @@ int daCstaF_c::Execute(Mtx** param_0) {
     *param_0 = (Mtx*)mp_model->getAnmMtx(0);
     m_isPlayerRide = FALSE;
 
-    if (player->getCopyRodControllActor() == this) {
+    if (player != NULL && player->getCopyRodControllActor() == this) {
         m_cc_stts.SetWeight(200);
     } else {
         m_cc_stts.SetWeight(255);
@@ -585,7 +690,7 @@ actor_process_profile_definition g_profile_CSTAF = {
     /* List Prio    */ fpcPi_CURRENT_e,
     /* Proc Name    */ fpcNm_CSTAF_e,
     /* Proc SubMtd  */ &g_fpcLf_Method.base,
-    /* Size         */ 0x00000B38,
+    /* Size         */ sizeof(daCstaF_c),
     /* Size Other   */ 0,
     /* Parameters   */ 0,
     /* Leaf SubMtd  */ &g_fopAc_Method.base,

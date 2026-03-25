@@ -2,6 +2,10 @@
  * m_Do_graphic.cpp
  * Graphics Management Functions
  */
+#ifdef TARGET_PC
+#include "JSystem/J3DGraphAnimator/J3DModel.h"
+extern "C" void pc_draw_test_triangle(void);
+#endif
 
 #include "d/dolzel.h" // IWYU pragma: keep
 
@@ -32,10 +36,82 @@
 #include "d/d_s_play.h"
 #include "DynamicLink.h"
 #include <cstring>
+#ifdef TARGET_PC
+#include "f_pc/f_pc_manager.h"
+#include "f_pc/f_pc_name.h"
+#endif
 
 #ifdef TARGET_PC
 #include "pc_platform.h"
 extern int g_pc_verbose;
+#endif
+
+#ifdef TARGET_PC
+#include <signal.h>
+#include <setjmp.h>
+#include "JSystem/J3DGraphAnimator/J3DModelData.h"
+static J3DModel* g_pc_pending_models[256];
+static int g_pc_pending_model_count = 0;
+J3DModel* g_pc_pending_model = NULL;
+
+/* Room BG model — loaded from R00_00 archive */
+static J3DModel* g_pc_room_model = NULL;
+/* Skybox models — loaded from Stg_00 archive */
+static J3DModel* g_pc_vrbox_models[4] = {};
+static int g_pc_vrbox_count = 0;
+static bool g_pc_room_model_attempted = false;
+
+static sigjmp_buf s_calc_jmpbuf;
+static volatile sig_atomic_t s_in_safe_calc = 0;
+
+static void pc_segv_handler(int sig) {
+    if (s_in_safe_calc) {
+        siglongjmp(s_calc_jmpbuf, 1);
+    }
+    /* Not in safe calc — re-raise */
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+void pc_gfx_add_pending_model(J3DModel* model) {
+    if (!model) return;
+    /* Also set singular for title model compat */
+    g_pc_pending_model = model;
+    if (g_pc_pending_model_count < 256) {
+        g_pc_pending_models[g_pc_pending_model_count++] = model;
+    }
+}
+
+static void pc_gfx_clear_pending_models(void) {
+    g_pc_pending_model_count = 0;
+    g_pc_pending_model = NULL;
+}
+
+/* Try to call calc() safely — if it segfaults, skip it */
+bool pc_try_model_calc(J3DModel* model) {
+    struct sigaction sa, old_sa;
+    sa.sa_handler = pc_segv_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGSEGV, &sa, &old_sa);
+    sigaction(SIGBUS, &sa, NULL);
+
+    s_in_safe_calc = 1;
+    if (sigsetjmp(s_calc_jmpbuf, 1) == 0) {
+        model->calc();
+        model->viewCalc();
+        s_in_safe_calc = 0;
+        sigaction(SIGSEGV, &old_sa, NULL);
+        sigaction(SIGBUS, &old_sa, NULL);
+        return true;
+    } else {
+        /* Caught crash in calc/viewCalc — skip */
+        s_in_safe_calc = 0;
+        sigaction(SIGSEGV, &old_sa, NULL);
+        sigaction(SIGBUS, &old_sa, NULL);
+        return false;
+    }
+}
 #endif
 
 #if PLATFORM_WII || PLATFORM_SHIELD
@@ -1608,19 +1684,87 @@ int mDoGph_Painter() {
     #endif
 
 #ifdef TARGET_PC
-    if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): windowNum=%d\n", s_painter_frame, dComIfGp_getWindowNum());
+    {
+        static int s_prev_wn = -1;
+        int wn = dComIfGp_getWindowNum();
+        if (wn == 0) {
+            /* Opening can reach draw with scene alive but window not restored.
+             * Without at least one window, 3D BG/actor lists are skipped entirely.
+             * Search for fully-created OR still-creating opening scene. */
+            bool found = (fpcM_SearchByName(fpcNm_OPENING_SCENE_e) != NULL);
+            if (!found) {
+                /* Scene may still be creating (actors loading). Check if
+                 * the start stage is the opening stage (F_SP127). */
+                const char* stageName = dComIfGp_getStartStageName();
+                if (stageName && strcmp(stageName, "F_SP127") == 0 && s_painter_frame > 10) {
+                    found = true;
+                }
+            }
+            if (found) {
+                dComIfGp_setWindowNum(1);
+                wn = dComIfGp_getWindowNum();
+                fprintf(stderr, "[PC] mDoGph_Painter: repaired windowNum to %d for OPENING (frame %d)\n",
+                        wn, s_painter_frame);
+            }
+        }
+        if (s_painter_frame <= 6 || wn != s_prev_wn || (s_painter_frame % 300 == 0)) {
+            fprintf(stderr, "[PC] mDoGph_Painter(%d): windowNum=%d\n", s_painter_frame, wn);
+            s_prev_wn = wn;
+        }
+    }
 #endif
     if (dComIfGp_getWindowNum() != 0) {
         dDlst_window_c* window_p = dComIfGp_getWindow(0);
         int camera_id = window_p->getCameraID();
         camera_process_class* camera_p = dComIfGp_getCamera(camera_id);
 
+#ifdef TARGET_PC
+        /* If no camera actor exists, create a default view so 3D models can render.
+         * This happens during the opening scene when the camera actor fails to create. */
+        static u8 s_defaultCameraStorage[sizeof(camera_process_class)] __attribute__((aligned(16)));
+        camera_process_class* s_defaultCameraPtr = (camera_process_class*)s_defaultCameraStorage;
+        if (camera_p == NULL) {
+            static bool s_init = false;
+            if (!s_init) {
+                s_init = true;
+                memset(s_defaultCameraStorage, 0, sizeof(s_defaultCameraStorage));
+                /* Set up a basic perspective view looking at the bridge scene */
+                Vec eye = {34941.0f, 300.0f, -15854.0f};
+                Vec center = {34941.0f, 0.0f, -15554.0f};
+                Vec up = {0.0f, 1.0f, 0.0f};
+                C_MTXLookAt(s_defaultCameraPtr->view.viewMtx, &eye, &up, &center);
+                s_defaultCameraPtr->view.fovy = 60.0f;
+                s_defaultCameraPtr->view.aspect = (f32)FB_WIDTH / (f32)FB_HEIGHT;
+                s_defaultCameraPtr->view.near = 1.0f;
+                s_defaultCameraPtr->view.far = 128000.0f;
+                /* Compute projection matrix from perspective params */
+                C_MTXPerspective(s_defaultCameraPtr->view.projMtx,
+                                 s_defaultCameraPtr->view.fovy,
+                                 s_defaultCameraPtr->view.aspect,
+                                 s_defaultCameraPtr->view.near,
+                                 s_defaultCameraPtr->view.far);
+                fprintf(stderr, "[PC] Using default camera (fovy=%.1f aspect=%.2f near=%.1f far=%.1f)\n",
+                        s_defaultCameraPtr->view.fovy, s_defaultCameraPtr->view.aspect,
+                        s_defaultCameraPtr->view.near, s_defaultCameraPtr->view.far);
+                fprintf(stderr, "[PC]   projMtx[0] = (%.6f, %.6f, %.6f, %.6f)\n",
+                        s_defaultCameraPtr->view.projMtx[0][0],
+                        s_defaultCameraPtr->view.projMtx[0][1],
+                        s_defaultCameraPtr->view.projMtx[0][2],
+                        s_defaultCameraPtr->view.projMtx[0][3]);
+            }
+            camera_p = s_defaultCameraPtr;
+        }
+#endif
         if (camera_p != NULL) {
+#ifdef TARGET_PC
+            /* Skip shadow rendering on PC — requires full camera/depth state */
+#else
             #if DEBUG
             fapGm_HIO_c::startCpuTimer();
             #endif
 
             dComIfGd_imageDrawShadow(camera_p->view.viewMtx);
+#endif
 
             #if DEBUG
             // "drawing Shadow Texture (Rendering)"
@@ -1808,7 +1952,9 @@ int mDoGph_Painter() {
                 fapGm_HIO_c::startCpuTimer();
                 #endif
 
+#ifndef TARGET_PC
                 drawDepth2(&camera_p->view, view_port, dComIfGp_getCameraZoomForcus(camera_id));
+#endif
                 GXInvalidateTexAll();
                 GXSetClipMode(GX_CLIP_ENABLE);
 
@@ -2128,10 +2274,8 @@ int mDoGph_Painter() {
         dComIfGd_draw2DOpa();
 #ifdef TARGET_PC
         if (s_painter_frame <= 6) fprintf(stderr, "[PC] mDoGph_Painter(%d): draw2DOpa done\n", s_painter_frame);
-        /* Skip drawItem3D — crashes on uninitialized 3D menu state during logo */
-#else
-        drawItem3D();
 #endif
+        drawItem3D();
         ortho.setPort();
 
         #if DEBUG
