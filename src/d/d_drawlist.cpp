@@ -865,6 +865,14 @@ dDlst_2D_c::dDlst_2D_c(ResTIMG* i_timg, s16 i_posX, s16 i_posY, s16 i_sizeX, s16
 }
 
 void dDlst_2D_c::draw() {
+#ifdef TARGET_PC
+    /* J2D boot/logo quads can carry TEXMAP_NULL TEV orders on PC.
+     * Ensure the picture's texture is explicitly bound each draw. */
+    JUTTexture* tex = mpPicture.getTexture(0);
+    if (tex != NULL) {
+        tex->load(GX_TEXMAP0);
+    }
+#endif
     mpPicture.setAlpha(mAlpha);
     mpPicture.draw(mPosX, mPosY, mSizeX, mSizeY, false, false, false);
 }

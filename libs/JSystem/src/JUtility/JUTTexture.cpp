@@ -35,16 +35,8 @@ void JUTTexture::storeTIMG(ResTIMG const* param_0, u8 param_1) {
     if (param_0 && param_1 < 0x10) {
 #ifdef TARGET_PC
         /* Byte-swap BTI header from big-endian disc data (only once) */
-        {
-            const u8* raw = (const u8*)param_0;
-            fprintf(stderr, "[PC] storeTIMG: raw fmt=%d w=%d h=%d imgOff=0x%08x raw[2..5]=%02x%02x%02x%02x\n",
-                    raw[0], param_0->width, param_0->height, param_0->imageOffset,
-                    raw[2], raw[3], raw[4], raw[5]);
-        }
         if (!pc_is_ResTIMG_swapped(param_0)) {
             pc_bswap_ResTIMG(const_cast<ResTIMG*>(param_0));
-            fprintf(stderr, "[PC] storeTIMG: AFTER swap w=%d h=%d imgOff=0x%08x\n",
-                    param_0->width, param_0->height, param_0->imageOffset);
         }
 #endif
         mTexInfo = param_0;

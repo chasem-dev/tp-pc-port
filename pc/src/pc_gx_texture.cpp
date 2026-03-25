@@ -278,7 +278,7 @@ static void decode_I8(const u8* src, u8* dst, int w, int h) {
     }
 }
 
-/* IA4: 8x4 blocks, 8bpp (4-bit intensity + 4-bit alpha) */
+/* IA4: 8x4 blocks, 8bpp (4-bit alpha + 4-bit intensity) */
 static void decode_IA4(const u8* src, u8* dst, int w, int h) {
     int bw = (w + 7) / 8, bh = (h + 3) / 4;
     for (int by = 0; by < bh; by++) {
@@ -288,8 +288,8 @@ static void decode_IA4(const u8* src, u8* dst, int w, int h) {
                     u8 byte = *src++;
                     int px = bx * 8 + x, py = by * 4 + y;
                     if (px < w && py < h) {
-                        u8 intensity = (byte & 0x0F) | ((byte & 0x0F) << 4);
-                        u8 alpha = (byte >> 4) | (byte & 0xF0);
+                        u8 alpha = (byte & 0xF0) | (byte >> 4);
+                        u8 intensity = (byte << 4) | (byte & 0x0F);
                         int idx = (py * w + px) * 4;
                         dst[idx] = dst[idx+1] = dst[idx+2] = intensity; dst[idx+3] = alpha;
                     }
@@ -299,8 +299,9 @@ static void decode_IA4(const u8* src, u8* dst, int w, int h) {
     }
 }
 
-/* IA8: 4x4 blocks, 16bpp (8-bit alpha + 8-bit intensity) */
+/* IA8: 4x4 blocks, 16bpp (8-bit intensity + 8-bit alpha) */
 static void decode_IA8(const u8* src, u8* dst, int w, int h) {
+    /* GCN IA8: each pixel is 2 bytes — Alpha first, then Intensity */
     int bw = (w + 3) / 4, bh = (h + 3) / 4;
     for (int by = 0; by < bh; by++) {
         for (int bx = 0; bx < bw; bx++) {
@@ -517,18 +518,6 @@ GLuint pc_gx_texture_decode_and_upload(void* data, int width, int height, int fo
 
     const u8* src = (const u8*)data;
     u8 palette[256][4];
-
-    /* Debug: dump first bytes of source data */
-    {
-        static int s_decode_count = 0;
-        s_decode_count++;
-        if (s_decode_count <= 5 && width > 4) {
-            fprintf(stderr, "[TEX] decode #%d: fmt=%d %dx%d src bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-                    s_decode_count, format, width, height,
-                    src[0], src[1], src[2], src[3], src[4], src[5], src[6], src[7],
-                    src[8], src[9], src[10], src[11], src[12], src[13], src[14], src[15]);
-        }
-    }
 
     switch (format) {
         case 0x0: decode_I4(src, pixels, width, height); break;

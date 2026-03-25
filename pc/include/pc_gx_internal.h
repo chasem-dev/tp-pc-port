@@ -64,16 +64,10 @@ typedef struct {
 } PCTexObj;
 
 typedef struct {
-    int has_position;
-    int has_normal;
-    int has_color0;
-    int has_color1;
-    int has_texcoord[8];
-    int texcoord_frac[8];
-    int position_size;
-    int color_size;
-    int texcoord_size;
-    int stride;
+    u8 cnt[PC_GX_MAX_ATTR];
+    u8 type[PC_GX_MAX_ATTR];
+    u8 frac[PC_GX_MAX_ATTR];
+    u8 valid[PC_GX_MAX_ATTR];
 } PCGXVertexFormat;
 
 typedef struct {
@@ -116,6 +110,7 @@ typedef struct {
     PCGXVertexFormat vtx_fmt[PC_GX_MAX_VTXFMT];
     int tc_frac[8];   /* texcoord fractional bits per coord (from GXSetVtxAttrFmt) */
     int pos_frac;     /* position fractional bits */
+    int nrm_frac;
 
     /* Transforms */
     float projection_mtx[4][4];
@@ -124,6 +119,10 @@ typedef struct {
     float nrm_mtx[10][3][3];
     float tex_mtx[10][3][4];
     int current_mtx;
+    int active_pnmtx;
+    int active_texmtx[8];
+    int cpu_xform_vertices;
+    int batch_pretransformed;
 
     /* Viewport & scissor */
     float viewport[6];  /* x, y, w, h, near, far */
@@ -132,6 +131,17 @@ typedef struct {
     /* TEV */
     int num_tev_stages;
     PCGXTevStage tev_stages[PC_GX_MAX_TEV_STAGES];
+
+    /* Snapshotted TEV state from GXBegin — used at flush time to match GCN
+     * behavior where TEV state is latched at draw submission, not at flush. */
+    int snap_num_tev_stages;
+    PCGXTevStage snap_tev_stages[PC_GX_MAX_TEV_STAGES];
+    int snap_num_tex_gens;
+    int snap_num_chans;
+    int snap_alpha_comp0, snap_alpha_ref0, snap_alpha_op, snap_alpha_comp1, snap_alpha_ref1;
+    int snap_valid;  /* 1 if snapshot was taken */
+    float snap_pos_mtx[3][4]; /* Modelview snapshot at GXBegin */
+    int snap_current_mtx;
     float tev_colors[4][4];    /* PREV, REG0, REG1, REG2 */
     float tev_k_colors[4][4];
     PCGXTevSwapTable tev_swap_table[4];
@@ -234,6 +244,7 @@ typedef struct {
         GLint texmtx_enable[8], texmtx_row0[8], texmtx_row1[8], texgen_src[8];
         GLint use_texture[8];
         GLint texture[8];
+        GLint tex_map[PC_GX_MAX_TEV_STAGES];
         GLint tev_tc_src[PC_GX_MAX_TEV_STAGES];
         GLint num_ind_stages;
         GLint ind_tex[4], ind_scale[4];
@@ -243,6 +254,7 @@ typedef struct {
         GLint tev_bsc[PC_GX_MAX_TEV_STAGES], tev_out[PC_GX_MAX_TEV_STAGES];
         GLint swap_table;
         GLint tev_swap[PC_GX_MAX_TEV_STAGES];
+        GLint simple_kmod, simple_use_kmod;
     } uloc;
 
     float clear_color[4];
@@ -280,6 +292,8 @@ void pc_gx_cache_uniform_locations(GLuint shader);
 
 /* TEV shader */
 GLuint pc_gx_tev_get_shader(PCGXState* state);
+GLuint pc_gx_tev_get_default_shader(void);
+GLuint pc_gx_tev_get_simple_shader(void);
 bool   pc_gx_tev_is_simple_shader(GLuint shader);
 void   pc_gx_tev_init(void);
 void   pc_gx_tev_shutdown(void);
