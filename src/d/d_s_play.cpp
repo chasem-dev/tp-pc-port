@@ -22,6 +22,7 @@
 #include "f_op/f_op_draw_iter.h"
 #include "f_op/f_op_msg_mng.h"
 #include "f_op/f_op_overlap_mng.h"
+#include "f_op/f_op_scene_pause.h"
 #include "m_Do/m_Do_Reset.h"
 #include "m_Do/m_Do_graphic.h"
 #include "d/actor/d_a_suspend.h"
@@ -37,6 +38,9 @@
 #include "d/actor/d_a_midna.h"
 #include "JSystem/JKernel/JKRAram.h"
 #include "JSystem/JKernel/JKRAramArchive.h"
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
 
 #if DEBUG
 #include "d/d_s_menu.h"
@@ -700,6 +704,14 @@ static int dScnPly_Execute(dScnPly_c* i_this) {
     #endif
 
     i_this->offReset();
+
+#ifdef TARGET_PC
+    base_process_class* base = (base_process_class*)i_this;
+    if (fpcM_GetName(i_this) == fpcNm_OPENING_SCENE_e && base->pause_flag != 0) {
+        fprintf(stderr, "[PLAY] forcing OPENING_SCENE unpause (pause_flag=%d)\n", base->pause_flag);
+        fopScnPause_Disable(i_this);
+    }
+#endif
 
     #if DEBUG
     if (lbl_8074CAE4) {

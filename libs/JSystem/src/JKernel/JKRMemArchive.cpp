@@ -5,6 +5,7 @@
 #include "JSystem/JKernel/JKRDvdRipper.h"
 #include "JSystem/JUtility/JUTAssert.h"
 #include "JSystem/JUtility/JUTException.h"
+#include "pc_bmg_bswap.h"
 #include <cstring>
 #include "global.h"
 #include <stdint.h>
@@ -240,6 +241,10 @@ void* JKRMemArchive::fetchResource(SDIFileEntry* fileEntry, u32* resourceSize) {
         fileEntry->data = mArchiveData + fileEntry->data_offset;
     }
 
+#ifdef TARGET_PC
+    pc_bmg_bswap_file(fileEntry->data, fileEntry->data_size);
+#endif
+
     if (resourceSize) {
         *resourceSize = fileEntry->data_size;
     }
@@ -263,6 +268,10 @@ void* JKRMemArchive::fetchResource(void* buffer, u32 bufferSize, SDIFileEntry* f
         srcLength =
             fetchResource_subroutine(mArchiveData + fileEntry->data_offset, srcLength, (u8*)buffer, bufferSize, compression);
     }
+
+#ifdef TARGET_PC
+    pc_bmg_bswap_file(buffer, srcLength);
+#endif
 
     if (resourceSize) {
         *resourceSize = srcLength;

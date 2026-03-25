@@ -547,6 +547,14 @@ void J3DShapePacket::drawFast() {
 void J3DPacket::draw() {}
 
 int J3DMatPacket::entry(J3DDrawBuffer* pBuffer) {
+#ifdef TARGET_PC
+    static int s_pkt_entry = 0;
+    if (s_pkt_entry < 20) {
+        fprintf(stderr, "[PKT-ENTRY] buf=%p sortMode=%d mat=%p\n",
+                (void*)pBuffer, pBuffer->getSortMode(), (void*)mpMaterial);
+        s_pkt_entry++;
+    }
+#endif
     J3DDrawBuffer::sortFunc func = J3DDrawBuffer::sortFuncTable[pBuffer->getSortMode()];
     return (pBuffer->*func)(this);
 }

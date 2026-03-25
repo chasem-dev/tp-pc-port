@@ -313,7 +313,12 @@ void dMfm_HIO_c::listenPropertyEvent(const JORPropertyEvent* property) {
     }
     JORFile file;
     JORMContext* mctx;
-    switch (reinterpret_cast<u32>(property->id)) {
+#ifdef TARGET_PC
+    uintptr_t property_id = reinterpret_cast<uintptr_t>(property->id);
+#else
+    u32 property_id = reinterpret_cast<u32>(property->id);
+#endif
+    switch (property_id) {
     case 0x4000002: {
         int i = 0;
         if (!field_0x8) {

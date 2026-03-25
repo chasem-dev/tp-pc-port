@@ -29,9 +29,18 @@ J3DJoint* J3DMtxCalc::mJoint;
 void J3DMtxCalcCalcTransformBasic::calcTransform(J3DTransformInfo const& transInfo) {
     J3DJoint* joint = J3DMtxCalc::getJoint();
     J3DMtxBuffer* mtxBuf = J3DMtxCalc::getMtxBuffer();
+#ifdef TARGET_PC
+    fprintf(stderr, "[CALC] Basic: joint=%p mtxBuf=%p\n", (void*)joint, (void*)mtxBuf); fflush(stderr);
+#endif
     u16 jntNo = joint->getJntNo();
+#ifdef TARGET_PC
+    fprintf(stderr, "[CALC] jntNo=%d\n", jntNo); fflush(stderr);
+#endif
 
     MtxP anmMtx = mtxBuf->getAnmMtx(jntNo);
+#ifdef TARGET_PC
+    fprintf(stderr, "[CALC] anmMtx=%p OK\n", (void*)anmMtx); fflush(stderr);
+#endif
 
     J3DSys::mCurrentS.x *= transInfo.mScale.x;
     J3DSys::mCurrentS.y *= transInfo.mScale.y;
@@ -53,9 +62,15 @@ void J3DMtxCalcCalcTransformBasic::calcTransform(J3DTransformInfo const& transIn
 void J3DMtxCalcCalcTransformSoftimage::calcTransform(J3DTransformInfo const& transInfo) {
     J3DJoint* joint = J3DMtxCalc::getJoint();
     J3DMtxBuffer* mtxBuf = J3DMtxCalc::getMtxBuffer();
+#ifdef TARGET_PC
+    if (!joint || !mtxBuf) return;
+#endif
     u16 jntNo = joint->getJntNo();
 
     MtxP anmMtx = mtxBuf->getAnmMtx(jntNo);
+#ifdef TARGET_PC
+    if (!anmMtx) return;
+#endif
 
     J3DGetTranslateRotateMtx(transInfo.mRotation.x, transInfo.mRotation.y, transInfo.mRotation.z,
                              transInfo.mTranslate.x * J3DSys::mCurrentS.x,
@@ -159,9 +174,16 @@ J3DJoint::J3DJoint() {
 
 void J3DJoint::entryIn() {
     MtxP anmMtx = j3dSys.getModel()->getAnmMtx(mJntNo);
+#ifdef TARGET_PC
+    /* Skip draw buffer access — buffers may be NULL on PC */
+    if (j3dSys.getDrawBuffer(0)) j3dSys.getDrawBuffer(0)->setZMtx(anmMtx);
+    if (j3dSys.getDrawBuffer(1)) j3dSys.getDrawBuffer(1)->setZMtx(anmMtx);
+#else
     j3dSys.getDrawBuffer(0)->setZMtx(anmMtx);
     j3dSys.getDrawBuffer(1)->setZMtx(anmMtx);
-    for (J3DMaterial* mesh = mMesh; mesh != NULL;) {
+#endif
+    int mesh_guard = 0;
+    for (J3DMaterial* mesh = mMesh; mesh != NULL && mesh_guard < 100; mesh_guard++) {
         if (mesh->getShape()->checkFlag(J3DShpFlag_Visible)) {
             mesh = mesh->getNext();
         } else {
@@ -192,6 +214,18 @@ void J3DJoint::entryIn() {
 J3DMtxCalc* J3DJoint::mCurrentMtxCalc;
 
 void J3DJoint::recursiveCalc() {
+#ifdef TARGET_PC
+    static int s_rc_depth = 0;
+    static int s_rc_log = 0;
+    s_rc_depth++;
+    if (s_rc_depth > 100) { s_rc_depth--; return; } /* prevent infinite recursion */
+    if (s_rc_log < 20) {
+        fprintf(stderr, "[JNT] recursiveCalc: this=%p depth=%d child=%p younger=%p mtxCalc=%p\n",
+                (void*)this, s_rc_depth, (void*)mChild, (void*)mYounger, (void*)getMtxCalc());
+        fflush(stderr);
+        s_rc_log++;
+    }
+#endif
     J3DMtxCalc* prevMtxCalc = NULL;
     Mtx prevCurrentMtx;
     MTXCopy(J3DSys::mCurrentMtx, prevCurrentMtx);
@@ -206,7 +240,13 @@ void J3DJoint::recursiveCalc() {
 #if DEBUG
         J3DMtxCalc::setMtxBuffer(J3DMtxCalc::getMtxBuffer());
 #endif
+#ifdef TARGET_PC
+        if (s_rc_log < 20) { fprintf(stderr, "[JNT] about to calc mtxCalc=%p...\n", (void*)piVar2); fflush(stderr); }
+#endif
         piVar2->calc();
+#ifdef TARGET_PC
+        if (s_rc_log < 20) { fprintf(stderr, "[JNT] mtxCalc->calc() OK\n"); fflush(stderr); }
+#endif
     } else {
         if (getCurrentMtxCalc() != NULL) {
             J3DMtxCalc* uVar6 = getCurrentMtxCalc();
@@ -240,4 +280,7 @@ void J3DJoint::recursiveCalc() {
     if (joint != NULL) {
         joint->recursiveCalc();
     }
+#ifdef TARGET_PC
+    s_rc_depth--;
+#endif
 }

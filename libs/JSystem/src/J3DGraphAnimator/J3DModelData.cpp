@@ -25,13 +25,30 @@ s32 J3DModelData::newSharedDisplayList(u32 mdlFlags) {
     u16 matNum = getMaterialNum();
 
     for (u16 i = 0; i < matNum; i++) {
+        J3DMaterial* mat = getMaterialNodePointer(i);
+#ifdef TARGET_PC
+        if (mat == NULL) {
+            fprintf(stderr, "[J3D] WARNING: material %d/%d is NULL — skipping DL alloc\n", i, matNum);
+            continue;
+        }
+#endif
         s32 ret;
+        u32 dlSize = 0;
+#ifdef TARGET_PC
+        /* Corrupt MAT3 entries can surface as mode=0 during early boot assets.
+         * Skip shared-DL generation for those materials to avoid hard faults in
+         * countDLSize()/makeSharedDisplayList; they will use live material load. */
+        if (mat->getMaterialMode() == 0) {
+            continue;
+        }
+#endif
+        dlSize = mat->countDLSize();
         if (mdlFlags & J3DMdlFlag_UseSingleDL) {
-            ret = getMaterialNodePointer(i)->newSingleSharedDisplayList(getMaterialNodePointer(i)->countDLSize());
+            ret = mat->newSingleSharedDisplayList(dlSize);
             if (ret != kJ3DError_Success)
                 return ret;
         } else {
-            ret = getMaterialNodePointer(i)->newSharedDisplayList(getMaterialNodePointer(i)->countDLSize());
+            ret = mat->newSharedDisplayList(dlSize);
             if (ret != kJ3DError_Success)
                 return ret;
         }
@@ -50,8 +67,19 @@ void J3DModelData::indexToPtr() {
     u16 matNum = getMaterialNum();
     for (u16 i = 0; i < matNum; i++) {
         J3DMaterial* matNode = getMaterialNodePointer(i);
+#ifdef TARGET_PC
+        if (matNode == NULL) {
+            fprintf(stderr, "[J3D] WARNING: indexToPtr material %d/%d is NULL\n", i, matNum);
+            continue;
+        }
+#endif
         J3DDisplayListObj* dl_obj = matNode->getSharedDisplayListObj();
-
+#ifdef TARGET_PC
+        if (dl_obj == NULL || dl_obj->getDisplayList(0) == NULL) {
+            fprintf(stderr, "[J3D] WARNING: indexToPtr material %d DL is NULL\n", i);
+            continue;
+        }
+#endif
         GDInitGDLObj(&gdl_obj, dl_obj->getDisplayList(0), dl_obj->getDisplayListSize());
         GDSetCurrent(&gdl_obj);
         matNode->getTevBlock()->indexToPtr();
@@ -67,7 +95,17 @@ void J3DModelData::makeSharedDL() {
 
     u16 matNum = getMaterialNum();
     for (u16 i = 0; i < matNum; i++) {
-        getMaterialNodePointer(i)->makeSharedDisplayList();
+        J3DMaterial* mat = getMaterialNodePointer(i);
+#ifdef TARGET_PC
+        if (mat == NULL) {
+            fprintf(stderr, "[J3D] WARNING: makeSharedDL material %d/%d is NULL\n", i, matNum);
+            continue;
+        }
+        if (mat->getSharedDisplayListObj() == NULL) {
+            continue;
+        }
+#endif
+        mat->makeSharedDisplayList();
     }
 }
 
@@ -75,7 +113,18 @@ void J3DModelData::simpleCalcMaterial(u16 idx, Mtx param_1) {
     syncJ3DSysFlags();
 
     J3DMaterial* mat;
-    J3DJoint* jointNode = getJointNodePointer(idx);
+    J3DJoint* jointNode = NULL;
+#ifdef TARGET_PC
+    if (idx == 0) {
+        jointNode = mJointTree.getRootNode();
+    }
+#endif
+    if (jointNode == NULL) {
+        jointNode = getJointNodePointer(idx);
+    }
+    if (jointNode == NULL) {
+        return;
+    }
     for (mat = jointNode->getMesh(); mat != NULL; mat = mat->getNext()) {
         if (mat->getMaterialAnm() != NULL) {
             mat->getMaterialAnm()->calc(mat);

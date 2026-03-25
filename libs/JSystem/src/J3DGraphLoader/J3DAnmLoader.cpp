@@ -8,13 +8,38 @@
 #include "JSystem/J3DGraphAnimator/J3DAnimation.h"
 #include "JSystem/JSupport/JSupport.h"
 #include <os.h>
+#ifdef TARGET_PC
+#include "pc_j3d_bswap.h"
+extern int g_pc_verbose;
+#endif
 
-J3DAnmBase* J3DAnmLoaderDataBase::load(const void* i_data, J3DAnmLoaderDataBaseFlag flag) {
-    const JUTDataFileHeader* header = (const JUTDataFileHeader*)i_data;
+J3DAnmBase* J3DAnmLoaderDataBase::load(const void* i_data, J3DAnmLoaderDataBaseFlag flag,
+                                       u32 i_dataSizeLimit) {
     J3D_ASSERT_NULLPTR(48, i_data);
     if (!i_data) {
         return NULL;
     }
+#ifdef TARGET_PC
+    /* Byte-swap animation file header + block headers with bounded size. */
+    {
+        uint32_t headerSize = 0;
+        const char* reason = "ok";
+        uint32_t swapSize = pc_j3d_get_safe_swap_size(i_data, i_dataSizeLimit, &headerSize, &reason);
+        if (swapSize > 0) {
+            if (g_pc_verbose && (i_dataSizeLimit != 0 || headerSize != swapSize)) {
+                fprintf(stderr,
+                        "[J3D] anm swap size: header=%u limit=%u effective=%u reason=%s ptr=%p\n",
+                        headerSize, i_dataSizeLimit, swapSize, reason, i_data);
+            }
+            pc_j3d_bswap_file(const_cast<void*>(i_data), swapSize);
+        } else if (g_pc_verbose) {
+            fprintf(stderr,
+                    "[J3D] anm swap skipped: header=%u limit=%u reason=%s ptr=%p\n",
+                    headerSize, i_dataSizeLimit, reason, i_data);
+        }
+    }
+#endif
+    const JUTDataFileHeader* header = (const JUTDataFileHeader*)i_data;
     if (header->mMagic == 'J3D1') {
         switch (header->mType) {
         case 'bck1': {
@@ -384,10 +409,12 @@ void J3DAnmFullLoader_v15::setAnmVtxColor(J3DAnmVtxColorFull* dst,
 
     for (s32 i = 0; i < dst->mAnmTableNum[0]; i++)
         dst->mAnmVtxColorIndexData[0][i].mpData =
-            (void*)((uintptr_t)indexPtr0 + (uintptr_t)dst->mAnmVtxColorIndexData[0][i].mpData * 2);
+            (J3D_PTR)((uintptr_t)indexPtr0 +
+                      (uintptr_t)dst->mAnmVtxColorIndexData[0][i].mpData * 2);
     for (s32 i = 0; i < dst->mAnmTableNum[1]; i++)
         dst->mAnmVtxColorIndexData[1][i].mpData =
-            (void*)((uintptr_t)indexPtr1 + (uintptr_t)dst->mAnmVtxColorIndexData[1][i].mpData * 2);
+            (J3D_PTR)((uintptr_t)indexPtr1 +
+                      (uintptr_t)dst->mAnmVtxColorIndexData[1][i].mpData * 2);
 
     dst->mColorR = JSUConvertOffsetToPtr<u8>(data, data->mRValuesOffset);
     dst->mColorG = JSUConvertOffsetToPtr<u8>(data, data->mGValuesOffset);
@@ -527,13 +554,14 @@ void J3DAnmKeyLoader_v15::setAnmTextureSRT(J3DAnmTextureSRTKey* param_1,
     param_1->field_0x46 = param_2->field_0x38;
     param_1->field_0x48 = param_2->field_0x3a;
     param_1->field_0x58 =
-        JSUConvertOffsetToPtr<J3DAnmTransformKeyTable>(param_2, param_2->mInfoTable2Offset);
+        (J3D_PTR)(uintptr_t)JSUConvertOffsetToPtr<J3DAnmTransformKeyTable>(param_2,
+                                                                           param_2->mInfoTable2Offset);
     param_1->mPostUpdateMaterialID = JSUConvertOffsetToPtr<u16>(param_2, param_2->field_0x40);
     param_1->mPostUpdateTexMtxID = JSUConvertOffsetToPtr<u8>(param_2, param_2->field_0x48);
     param_1->mPostSRTCenter = JSUConvertOffsetToPtr<Vec>(param_2, param_2->field_0x4c);
-    param_1->field_0x4c = JSUConvertOffsetToPtr<f32>(param_2, param_2->field_0x50);
-    param_1->field_0x50 = JSUConvertOffsetToPtr<s16>(param_2, param_2->field_0x54);
-    param_1->field_0x54 = JSUConvertOffsetToPtr<f32>(param_2, param_2->field_0x58);
+    param_1->field_0x4c = (J3D_PTR)(uintptr_t)JSUConvertOffsetToPtr<f32>(param_2, param_2->field_0x50);
+    param_1->field_0x50 = (J3D_PTR)(uintptr_t)JSUConvertOffsetToPtr<s16>(param_2, param_2->field_0x54);
+    param_1->field_0x54 = (J3D_PTR)(uintptr_t)JSUConvertOffsetToPtr<f32>(param_2, param_2->field_0x58);
     switch (param_2->field_0x5c) {
     case 0:
     case 1:
@@ -665,10 +693,12 @@ void J3DAnmKeyLoader_v15::setAnmVtxColor(J3DAnmVtxColorKey* dst,
 
     for (s32 i = 0; i < dst->mAnmTableNum[0]; i++)
         dst->mAnmVtxColorIndexData[0][i].mpData =
-            (void*)((uintptr_t)indexPtr0 + (uintptr_t)dst->mAnmVtxColorIndexData[0][i].mpData * 2);
+            (J3D_PTR)((uintptr_t)indexPtr0 +
+                      (uintptr_t)dst->mAnmVtxColorIndexData[0][i].mpData * 2);
     for (s32 i = 0; i < dst->mAnmTableNum[1]; i++)
         dst->mAnmVtxColorIndexData[1][i].mpData =
-            (void*)((uintptr_t)indexPtr1 + (uintptr_t)dst->mAnmVtxColorIndexData[1][i].mpData * 2);
+            (J3D_PTR)((uintptr_t)indexPtr1 +
+                      (uintptr_t)dst->mAnmVtxColorIndexData[1][i].mpData * 2);
 
     dst->mColorR = JSUConvertOffsetToPtr<s16>(data, data->mRValOffset);
     dst->mColorG = JSUConvertOffsetToPtr<s16>(data, data->mGValOffset);

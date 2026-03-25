@@ -652,6 +652,19 @@ void J2DPane::makePaneExStream(J2DPane* p_parent, JSURandomInputStream* p_stream
 
     J2DPaneInfo data;
     p_stream->read(&data, sizeof(data));
+#ifdef TARGET_PC
+    /* Byte-swap big-endian fields in the pane info struct.
+     * The struct is read raw from the .blo file which is big-endian. */
+    data.mKind = __builtin_bswap32(data.mKind);
+    data.mSize = __builtin_bswap32(data.mSize);
+    data.field_0x8 = __builtin_bswap16(data.field_0x8);
+    data.field_0xa = __builtin_bswap16(data.field_0xa);
+    data.mInfoTag = __builtin_bswap64(data.mInfoTag);
+    data.mUserInfoTag = __builtin_bswap64(data.mUserInfoTag);
+    /* Swap f32 fields (same as u32 swap) */
+    u32* fdata = (u32*)&data.mRotOffsetX;
+    for (int i = 0; i < 9; i++) fdata[i] = __builtin_bswap32(fdata[i]);
+#endif
     field_0x4 = data.field_0xa;
     mVisible = !!data.mVisible;
     mInfoTag = data.mInfoTag;

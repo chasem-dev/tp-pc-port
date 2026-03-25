@@ -78,6 +78,11 @@ int dEnvSe_c::execute_common(dStage_SoundInfo_c* i_soundInf, s8* param_1, u8 par
     int i = i_soundInf->num;
     stage_sound_data* data_p = i_soundInf->entries;
 
+#ifdef TARGET_PC
+    /* Camera may not exist yet during opening scene initialization */
+    camera_process_class* cam_proc = dComIfGp_getCamera(dComIfGp_getPlayerCameraID(0));
+    if (cam_proc == NULL) return 1;
+#endif
     cXyz cam_eye = dComIfGp_getCamera(dComIfGp_getPlayerCameraID(0))->mCamera.Eye();
 
     if (param_2 == 0) {

@@ -1451,10 +1451,25 @@ void dSv_turnRestart_c::set(const cXyz& i_position, s16 i_angleY, s8 param_3, u3
 }
 
 void dSv_info_c::init() {
+#ifdef TARGET_PC
+    fprintf(stderr, "[SAVE] init: mSavedata.init()...\n"); fflush(stderr);
+#endif
     mSavedata.init();
+#ifdef TARGET_PC
+    fprintf(stderr, "[SAVE] init: mMemory.init()...\n"); fflush(stderr);
+#endif
     mMemory.init();
+#ifdef TARGET_PC
+    fprintf(stderr, "[SAVE] init: initDan...\n"); fflush(stderr);
+#endif
     initDan(-1);
+#ifdef TARGET_PC
+    fprintf(stderr, "[SAVE] init: initZone...\n"); fflush(stderr);
+#endif
     initZone();
+#ifdef TARGET_PC
+    fprintf(stderr, "[SAVE] init: mTmp.init()...\n"); fflush(stderr);
+#endif
     mTmp.init();
 
 #if DEBUG
@@ -1476,7 +1491,13 @@ static void dummy() {
 }
 
 void dSv_save_c::init() {
+#ifdef TARGET_PC
+    fprintf(stderr, "[SAVE] dSv_save_c::init: mPlayer...\n"); fflush(stderr);
+#endif
     mPlayer.init();
+#ifdef TARGET_PC
+    fprintf(stderr, "[SAVE] dSv_save_c::init: mSave loop (%d entries)...\n", STAGE_MAX); fflush(stderr);
+#endif
     for (int i = 0; i < STAGE_MAX; i++) {
         mSave[i].init();
     }

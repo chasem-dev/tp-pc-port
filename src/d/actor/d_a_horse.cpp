@@ -4,6 +4,11 @@
 */
 
 #include "d/dolzel_rel.h" // IWYU pragma: keep
+#ifdef TARGET_PC
+#include <csetjmp>
+extern "C" void pc_crash_set_jmpbuf(jmp_buf*);
+extern "C" uintptr_t pc_crash_get_addr(void);
+#endif
 
 #include "d/actor/d_a_horse.h"
 #include "d/actor/d_a_alink.h"
@@ -707,14 +712,32 @@ int daHorse_c::create() {
         m_onRideFlg = &daHorse_c::onRideFlgSubstance;
         m_offRideFlg = &daHorse_c::offRideFlgSubstance;
 
-        if (daAlink_getAlinkActorClass()->checkHorseStart() || checkStateFlg0(FLG0_UNK_8000) ||
-            (DEBUG && g_horsePosInit) ||
-            strcmp(dComIfGs_getHorseRestartStageName(), "") == 0
+        bool horseStart = false;
+#ifdef TARGET_PC
+        const char* startStage = dComIfGp_getStartStageName();
+        const bool openingHorseStart =
+            (startStage != NULL && strcmp(startStage, "F_SP102") == 0 &&
+             dComIfGp_getStartStagePoint() == 100);
+        if (openingHorseStart) {
+            horseStart = true;
+        } else
+#endif
+        {
+            daAlink_c* alink = daAlink_getAlinkActorClass();
+            horseStart = (alink != NULL)
+                             ? alink->daAlink_c::checkHorseStart(alink->getLastSceneMode(),
+                                                                  alink->getStartMode())
+                             : false;
+        }
+        bool state8000 = checkStateFlg0(FLG0_UNK_8000);
+        bool debugPosInit = (DEBUG && g_horsePosInit);
+        const char* restartStage = dComIfGs_getHorseRestartStageName();
+        bool emptyRestartStage = (strcmp(restartStage, "") == 0);
+        bool eventBlock = (dComIfGs_isEventBit(0x1580) && !dComIfGs_isEventBit(0x601));
+        if (horseStart || state8000 || debugPosInit || emptyRestartStage
             /* dSv_event_flag_c::M_002 - Cutscene - [cutscene: 2] Met with Ilia (brings horse to
                spring) */
-            || (dComIfGs_isEventBit(0x1580)
-                /* dSv_event_flag_c::M_023 - Main Event - Epona rescued flag */
-                && !dComIfGs_isEventBit(0x601)))
+            || eventBlock)
         {
 #if DEBUG
             g_horsePosInit = 0;
@@ -887,7 +910,21 @@ int daHorse_c::create() {
 static int daHorse_Create(fopAc_ac_c* i_this) {
     daHorse_c* a_this = (daHorse_c*)i_this;
     fopAcM_RegisterCreateID(i_this, "HORSE");
-    return a_this->create();
+#ifdef TARGET_PC
+    jmp_buf buf;
+    pc_crash_set_jmpbuf(&buf);
+    if (setjmp(buf) != 0) {
+        pc_crash_set_jmpbuf(NULL);
+        fprintf(stderr, "[HORSE] create() crashed at 0x%lx — skipping horse actor\n",
+                (unsigned long)pc_crash_get_addr());
+        return cPhs_ERROR_e;
+    }
+#endif
+    int phase = a_this->create();
+#ifdef TARGET_PC
+    pc_crash_set_jmpbuf(NULL);
+#endif
+    return phase;
 }
 
 void daHorse_c::setBasAnime(int param_0) {

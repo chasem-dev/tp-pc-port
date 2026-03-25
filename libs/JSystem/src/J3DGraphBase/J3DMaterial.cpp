@@ -2,6 +2,15 @@
 
 #include "JSystem/J3DGraphBase/J3DMaterial.h"
 #include "JSystem/J3DGraphBase/J3DGD.h"
+#ifdef TARGET_PC
+#include <cstdio>
+#include <setjmp.h>
+extern "C" void pc_gd_clear_overflow_flag(void);
+extern "C" int pc_gd_consume_overflow_flag(void);
+extern "C" void pc_crash_set_jmpbuf(jmp_buf* buf);
+extern "C" jmp_buf* pc_crash_get_jmpbuf(void);
+extern "C" uintptr_t pc_crash_get_addr(void);
+#endif
 
 J3DColorBlock* J3DMaterial::createColorBlock(u32 flags) {
     J3DColorBlock* rv = NULL;
@@ -48,6 +57,15 @@ J3DTevBlock* J3DMaterial::createTevBlock(int tevStageNum) {
         rv = new J3DTevBlock16();
     }
 
+#ifdef TARGET_PC
+    if (rv == NULL) {
+        fprintf(stderr,
+                "[J3D] createTevBlock: invalid tevStageNum=%d, falling back to 1-stage block\n",
+                tevStageNum);
+        rv = new J3DTevBlock1();
+    }
+#endif
+
     J3D_ASSERT_ALLOCMEM(116, rv != NULL);
     return rv;
 }
@@ -87,6 +105,15 @@ J3DPEBlock* J3DMaterial::createPEBlock(u32 flags, u32 materialMode) {
     } else if (flags == 0x20000000) {
         rv = new J3DPEBlockFogOff();
     }
+
+#ifdef TARGET_PC
+    if (rv == NULL) {
+        fprintf(stderr,
+                "[J3D] createPEBlock: invalid flags=0x%08x mode=0x%08x, falling back to Opa block\n",
+                flags, materialMode);
+        rv = new J3DPEBlockOpa();
+    }
+#endif
 
     J3D_ASSERT_ALLOCMEM(188, rv != NULL);
     return rv;
@@ -187,28 +214,141 @@ void J3DMaterial::initialize() {
 }
 
 u32 J3DMaterial::countDLSize() {
-    return (mColorBlock->countDLSize() + mTexGenBlock->countDLSize() + mTevBlock->countDLSize() +
-        mIndBlock->countDLSize() + mPEBlock->countDLSize() + 31) & ~0x1f;
+#ifdef TARGET_PC
+    /* Corrupted MAT3 entries can produce invalid block pointers/mode.
+     * Rebuild a known-safe minimal material in that case. */
+    if (mMaterialMode == 0 || mColorBlock == NULL || mTexGenBlock == NULL || mTevBlock == NULL ||
+        mIndBlock == NULL || mPEBlock == NULL) {
+        mMaterialMode = 1;
+        mColorBlock = createColorBlock(0x40000000);
+        mTexGenBlock = createTexGenBlock(0);
+        mTevBlock = createTevBlock(1);
+        mIndBlock = createIndBlock(0);
+        mPEBlock = createPEBlock(0x10000000, 1);
+
+        if (mColorBlock != NULL) {
+            mColorBlock->setColorChanNum((u8)0);
+            mColorBlock->setCullMode(GX_CULL_BACK);
+        }
+        if (mTexGenBlock != NULL) {
+            mTexGenBlock->setTexGenNum((u32)0);
+        }
+        if (mTevBlock != NULL) {
+            mTevBlock->setTevStageNum(1);
+            mTevBlock->setTexNo(0, (u16)0xFFFF);
+        }
+    }
+
+    jmp_buf countBuf;
+    pc_crash_set_jmpbuf(&countBuf);
+    if (setjmp(countBuf) != 0) {
+        pc_crash_set_jmpbuf(NULL);
+        fprintf(stderr, "[J3D-MAT] countDLSize recovered after fault at addr=%p (mat=%p idx=%u)\n",
+                (void*)pc_crash_get_addr(), (void*)this, (unsigned)mIndex);
+        mMaterialMode = 1;
+        mColorBlock = createColorBlock(0x40000000);
+        mTexGenBlock = createTexGenBlock(0);
+        mTevBlock = createTevBlock(1);
+        mIndBlock = createIndBlock(0);
+        mPEBlock = createPEBlock(0x10000000, 1);
+        if (mColorBlock != NULL) {
+            mColorBlock->setColorChanNum((u8)0);
+            mColorBlock->setCullMode(GX_CULL_BACK);
+        }
+        if (mTexGenBlock != NULL) {
+            mTexGenBlock->setTexGenNum((u32)0);
+        }
+        if (mTevBlock != NULL) {
+            mTevBlock->setTevStageNum(1);
+            mTevBlock->setTexNo(0, (u16)0xFFFF);
+        }
+        u32 fallback = 0;
+        if (mColorBlock) fallback += mColorBlock->countDLSize();
+        if (mTexGenBlock) fallback += mTexGenBlock->countDLSize();
+        if (mTevBlock) fallback += mTevBlock->countDLSize();
+        if (mIndBlock) fallback += mIndBlock->countDLSize();
+        if (mPEBlock) fallback += mPEBlock->countDLSize();
+        return (fallback + 31) & ~0x1f;
+    }
+#endif
+    u32 dlSize = (mColorBlock->countDLSize() + mTexGenBlock->countDLSize() + mTevBlock->countDLSize() +
+                  mIndBlock->countDLSize() + mPEBlock->countDLSize() + 31) &
+                 ~0x1f;
+#ifdef TARGET_PC
+    pc_crash_set_jmpbuf(NULL);
+#endif
+    return dlSize;
 }
 
 void J3DMaterial::makeDisplayList_private(J3DDisplayListObj* pDLObj) {
-    pDLObj->beginDL();
-    mTevBlock->load();
-    mIndBlock->load();
-    mPEBlock->load();
-    J3DGDSetGenMode(mTexGenBlock->getTexGenNum(), mColorBlock->getColorChanNum(), mTevBlock->getTevStageNum(), mIndBlock->getIndTexStageNum(), (GXCullMode)(u8)mColorBlock->getCullMode());
-    mTexGenBlock->load();
-    mColorBlock->load();
-    J3DGDSetNumChans(mColorBlock->getColorChanNum());
-    J3DGDSetNumTexGens(mTexGenBlock->getTexGenNum());
-    pDLObj->endDL();
+    if (pDLObj == NULL) {
+        return;
+    }
+#ifdef TARGET_PC
+    if (mColorBlock == NULL || mTexGenBlock == NULL || mTevBlock == NULL || mIndBlock == NULL ||
+        mPEBlock == NULL) {
+        /* Keep runtime DL generation alive when MAT3 decode is incomplete. */
+        mMaterialMode = 1;
+        mColorBlock = createColorBlock(0x40000000);
+        mTexGenBlock = createTexGenBlock(0);
+        mTevBlock = createTevBlock(1);
+        mIndBlock = createIndBlock(0);
+        mPEBlock = createPEBlock(0x10000000, 1);
+        mColorBlock->setColorChanNum((u8)0);
+        mColorBlock->setCullMode(GX_CULL_BACK);
+        mTexGenBlock->setTexGenNum((u32)0);
+        mTevBlock->setTevStageNum(1);
+    }
+#endif
+    const bool isSingleBuffer = (pDLObj->mpDisplayList[0] == pDLObj->mpDisplayList[1]);
+    for (int attempt = 0; attempt < 5; ++attempt) {
+#ifdef TARGET_PC
+        pc_gd_clear_overflow_flag();
+#endif
+        pDLObj->beginDL();
+        mTevBlock->load();
+        mIndBlock->load();
+        mPEBlock->load();
+        J3DGDSetGenMode(mTexGenBlock->getTexGenNum(), mColorBlock->getColorChanNum(),
+                        mTevBlock->getTevStageNum(), mIndBlock->getIndTexStageNum(),
+                        (GXCullMode)(u8)mColorBlock->getCullMode());
+        mTexGenBlock->load();
+        mColorBlock->load();
+        J3DGDSetNumChans(mColorBlock->getColorChanNum());
+        J3DGDSetNumTexGens(mTexGenBlock->getTexGenNum());
+        pDLObj->endDL();
+#ifdef TARGET_PC
+        if (!pc_gd_consume_overflow_flag()) {
+            return;
+        }
+        u32 nextSize = pDLObj->mMaxSize != 0 ? pDLObj->mMaxSize * 2 : 0x1000;
+        if (isSingleBuffer) {
+            if (pDLObj->newSingleDisplayList(nextSize) != kJ3DError_Success) {
+                return;
+            }
+        } else if (pDLObj->newDisplayList(nextSize) != kJ3DError_Success) {
+            return;
+        }
+#else
+        return;
+#endif
+    }
 }
 
 void J3DMaterial::makeDisplayList() {
-    if (!j3dSys.getMatPacket()->isLocked()) {
-        j3dSys.getMatPacket()->mDiffFlag = mDiffFlag;
-        makeDisplayList_private(j3dSys.getMatPacket()->getDisplayListObj());
+    J3DMatPacket* matPacket = j3dSys.getMatPacket();
+    if (matPacket != NULL) {
+        if (!matPacket->isLocked()) {
+            matPacket->mDiffFlag = mDiffFlag;
+            makeDisplayList_private(matPacket->getDisplayListObj());
+        }
+        return;
     }
+#ifdef TARGET_PC
+    if (mSharedDLObj != NULL) {
+        makeDisplayList_private(mSharedDLObj);
+    }
+#endif
 }
 
 void J3DMaterial::makeSharedDisplayList() {
@@ -218,7 +358,66 @@ void J3DMaterial::makeSharedDisplayList() {
 void J3DMaterial::load() {
     j3dSys.setMaterialMode(mMaterialMode);
     if (!j3dSys.checkFlag(2)) {
+#ifdef TARGET_PC
+        if (mTevBlock == NULL) {
+            mTevBlock = createTevBlock(1);
+        }
+        if (mIndBlock == NULL) {
+            mIndBlock = createIndBlock(0);
+        }
+        if (mPEBlock == NULL) {
+            mPEBlock = createPEBlock(0, mMaterialMode ? mMaterialMode : 1);
+        }
+        if (mTexGenBlock == NULL) {
+            mTexGenBlock = createTexGenBlock(0);
+        }
+        if (mColorBlock == NULL) {
+            mColorBlock = createColorBlock(0);
+        }
+#endif
+#ifdef TARGET_PC
+        /* Material blocks may have corrupt data from byte-swap issues.
+         * Wrap each load in crash protection to survive bad materials. */
+        jmp_buf matBuf;
+        jmp_buf* prevMatBuf = pc_crash_get_jmpbuf();
+        pc_crash_set_jmpbuf(&matBuf);
+        if (setjmp(matBuf) == 0) {
+            mTevBlock->load();
+            mIndBlock->load();
+            mPEBlock->load();
+            J3DGDSetGenMode(mTexGenBlock->getTexGenNum(), mColorBlock->getColorChanNum(),
+                            mTevBlock->getTevStageNum(), mIndBlock->getIndTexStageNum(),
+                            (GXCullMode)(u8)mColorBlock->getCullMode());
+            mTexGenBlock->load();
+            mColorBlock->load();
+            J3DGDSetNumChans(mColorBlock->getColorChanNum());
+            J3DGDSetNumTexGens(mTexGenBlock->getTexGenNum());
+            loadNBTScale(*mTexGenBlock->getNBTScale());
+        } else {
+            static int s_matload_crash = 0;
+            if (s_matload_crash++ < 5) {
+                fprintf(stderr, "[J3D] material load crashed (addr=%p idx=%d), using defaults\n",
+                        (void*)pc_crash_get_addr(), mIndex);
+            }
+            /* Set minimal default state so draws don't break */
+            GXSetNumChans(1);
+            GXSetNumTexGens(0);
+            GXSetNumTevStages(1);
+        }
+        pc_crash_set_jmpbuf(prevMatBuf);
+#else
+        mTevBlock->load();
+        mIndBlock->load();
+        mPEBlock->load();
+        J3DGDSetGenMode(mTexGenBlock->getTexGenNum(), mColorBlock->getColorChanNum(),
+                        mTevBlock->getTevStageNum(), mIndBlock->getIndTexStageNum(),
+                        (GXCullMode)(u8)mColorBlock->getCullMode());
+        mTexGenBlock->load();
+        mColorBlock->load();
+        J3DGDSetNumChans(mColorBlock->getColorChanNum());
+        J3DGDSetNumTexGens(mTexGenBlock->getTexGenNum());
         loadNBTScale(*mTexGenBlock->getNBTScale());
+#endif
     }
 }
 

@@ -7,6 +7,7 @@
 #include "JSystem/JKernel/JKRDvdFile.h"
 #include "JSystem/JUtility/JUTAssert.h"
 #include "JSystem/JUtility/JUTException.h"
+#include "pc_bmg_bswap.h"
 #include <cmath>
 #include <cstring>
 
@@ -221,6 +222,10 @@ void* JKRAramArchive::fetchResource(SDIFileEntry* pEntry, u32* pOutSize) {
         }
     }
 
+#ifdef TARGET_PC
+    pc_bmg_bswap_file(pEntry->data, *pOutSize);
+#endif
+
     return pEntry->data;
 }
 
@@ -249,6 +254,10 @@ void* JKRAramArchive::fetchResource(void* buffer, u32 bufferSize, SDIFileEntry* 
         }
         JKRHeap::copyMemory(buffer, pEntry->data, size);
     }
+
+#ifdef TARGET_PC
+    pc_bmg_bswap_file(buffer, size);
+#endif
 
     if (resourceSize != NULL) {
         *resourceSize = size;

@@ -10,6 +10,10 @@
 #include "JSystem/J3DGraphBase/J3DSys.h"
 #include "JSystem/J3DGraphBase/J3DTransform.h"
 #include "global.h"
+#ifdef TARGET_PC
+#include <cstdio>
+extern int g_pc_verbose;
+#endif
 
 static void J3DGDLoadTexMtxImm(f32 (*)[4], u32, GXTexMtxType);
 static void J3DGDLoadPostTexMtxImm(f32 (*)[4], u32);
@@ -281,8 +285,28 @@ u16 getTexNoReg(void* pDL) {
 }
 
 void loadTexNo(u32 param_0, const u16& texNo) {
-    ResTIMG* resTIMG = j3dSys.getTexture()->getResTIMG(texNo);
+    J3DTexture* texture = j3dSys.getTexture();
+#ifdef TARGET_PC
+    if (texture == NULL) {
+        if (g_pc_verbose) {
+            fprintf(stderr, "[J3D] loadTexNo skipped: null texture table map=%u texNo=%u\n",
+                    param_0, (unsigned)texNo);
+        }
+        return;
+    }
+#endif
+    ResTIMG* resTIMG = texture->getResTIMG(texNo);
+#ifdef TARGET_PC
+    if (resTIMG == NULL) {
+        if (g_pc_verbose) {
+            fprintf(stderr, "[J3D] loadTexNo skipped: missing ResTIMG map=%u texNo=%u\n", param_0,
+                    (unsigned)texNo);
+        }
+        return;
+    }
+#else
     J3D_ASSERT_NULLPTR(462, resTIMG != NULL);
+#endif
 
     J3DSys::sTexCoordScaleTable[param_0].field_0x00 = (u16)resTIMG->width;
     J3DSys::sTexCoordScaleTable[param_0].field_0x02 = (u16)resTIMG->height;
@@ -301,8 +325,28 @@ void loadTexNo(u32 param_0, const u16& texNo) {
 }
 
 void patchTexNo_PtrToIdx(u32 texID, const u16& idx) {
-    ResTIMG* timg = j3dSys.getTexture()->getResTIMG(idx);
+    J3DTexture* texture = j3dSys.getTexture();
+#ifdef TARGET_PC
+    if (texture == NULL) {
+        if (g_pc_verbose) {
+            fprintf(stderr, "[J3D] patchTexNo skipped: null texture table texID=%u idx=%u\n", texID,
+                    (unsigned)idx);
+        }
+        return;
+    }
+#endif
+    ResTIMG* timg = texture->getResTIMG(idx);
+#ifdef TARGET_PC
+    if (timg == NULL) {
+        if (g_pc_verbose) {
+            fprintf(stderr, "[J3D] patchTexNo skipped: missing ResTIMG texID=%u idx=%u\n", texID,
+                    (unsigned)idx);
+        }
+        return;
+    }
+#else
     J3D_ASSERT_NULLPTR(523, timg != NULL);
+#endif
 
     J3DGDSetTexImgPtrRaw(GXTexMapID(texID), idx);
 }

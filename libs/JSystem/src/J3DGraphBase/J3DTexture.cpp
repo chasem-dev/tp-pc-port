@@ -7,18 +7,45 @@ void J3DTexture::loadGX(u16 idx, GXTexMapID texMapID) const {
     J3D_ASSERT_RANGE(29, idx < mNum);
 
     ResTIMG* timg = getResTIMG(idx);
+#ifdef TARGET_PC
+    /* On 64-bit, imageOffset may have overflowed during setResTIMG.
+     * Use the original pointer to the source ResTIMG for image data access. */
+    const ResTIMG* srcTimg = getOrigResTIMG(idx);
+    u8* imgData = ((u8*)srcTimg) + srcTimg->imageOffset;
+    u8* palData = ((u8*)srcTimg) + srcTimg->paletteOffset;
+    static int s_tl = 0;
+    if (s_tl++ < 5) {
+        /* Scan from image data start to find non-zero pixels */
+        int firstNZ = -1;
+        u32 imgOff = srcTimg->imageOffset;
+        for (int i = 0; i < 0x40000 && imgData + i < ((u8*)srcTimg) + 0x200000; i++) {
+            if (imgData[i] != 0) { firstNZ = i; break; }
+        }
+        fprintf(stderr, "[TEX] loadGX: idx=%d fmt=%d %dx%d imgOff=0x%x src=%p img=%p imgFirstNZ=%d\n",
+                idx, timg->format, timg->width, timg->height, imgOff,
+                (void*)srcTimg, (void*)imgData, firstNZ);
+        if (firstNZ >= 0) {
+            fprintf(stderr, "[TEX]   imgData[%d]: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                    firstNZ, imgData[firstNZ], imgData[firstNZ+1], imgData[firstNZ+2], imgData[firstNZ+3],
+                    imgData[firstNZ+4], imgData[firstNZ+5], imgData[firstNZ+6], imgData[firstNZ+7]);
+        }
+    }
+#else
+    u8* imgData = ((u8*)timg) + timg->imageOffset;
+    u8* palData = ((u8*)timg) + timg->paletteOffset;
+#endif
     GXTexObj texObj;
     GXTlutObj tlutObj;
 
     if (!timg->indexTexture) {
-        GXInitTexObj(&texObj, ((u8*)timg) + timg->imageOffset, timg->width, timg->height,
+        GXInitTexObj(&texObj, imgData, timg->width, timg->height,
                      (GXTexFmt)timg->format, (GXTexWrapMode)timg->wrapS, (GXTexWrapMode)timg->wrapT,
                      timg->mipmapEnabled);
     } else {
-        GXInitTexObjCI(&texObj, ((u8*)timg) + timg->imageOffset, timg->width, timg->height,
+        GXInitTexObjCI(&texObj, imgData, timg->width, timg->height,
                        (GXCITexFmt)timg->format, (GXTexWrapMode)timg->wrapS,
                        (GXTexWrapMode)timg->wrapT, timg->mipmapEnabled, (u32)texMapID);
-        GXInitTlutObj(&tlutObj, ((u8*)timg) + timg->paletteOffset, (GXTlutFmt)timg->colorFormat,
+        GXInitTlutObj(&tlutObj, palData, (GXTlutFmt)timg->colorFormat,
                       timg->numColors);
         GXLoadTlut(&tlutObj, texMapID);
     }

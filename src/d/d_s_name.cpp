@@ -16,6 +16,9 @@
 #include "m_Do/m_Do_mtx.h"
 #include "m_Do/m_Do_main.h"
 #include "f_op/f_op_overlap_mng.h"
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
 
 static dSn_HIO_c g_snHIO;
 
@@ -67,16 +70,40 @@ static s32 resLoad(request_of_phase_process_class* i_phase, char* i_resName) {
 
 s32 dScnName_c::create() {
     int phase_state = resLoad(&phase, "fileSel");
+#ifdef TARGET_PC
+    static int s_name_create_log = 0;
+    if (s_name_create_log++ < 80) {
+        fprintf(stderr, "[NAME] create phase_state=%d phase_id=%d this=%p\n",
+                phase_state, phase.id, (void*)this);
+    }
+#endif
     if (phase_state == cPhs_COMPLEATE_e) {
+#ifdef TARGET_PC
+        fprintf(stderr, "[NAME] phase complete, building file select\n");
+#endif
         mHeap = JKRCreateExpHeap(0x180000, mDoExt_getGameHeap(), false);
         JUT_ASSERT(289, mHeap != NULL);
 
         field_0x1d0 = (JKRExpHeap*)mDoExt_setCurrentHeap(mHeap);
 
         dRes_info_c* resInfo = dComIfG_getObjectResInfo("fileSel");
+#ifdef TARGET_PC
+        fprintf(stderr, "[NAME] resInfo=%p archive=%p\n", (void*)resInfo,
+                resInfo ? (void*)resInfo->getArchive() : NULL);
+#endif
         JUT_ASSERT(293, resInfo != NULL);
 
+#ifdef TARGET_PC
+        if (resInfo == NULL || resInfo->getArchive() == NULL) {
+            fprintf(stderr, "[NAME] missing fileSel archive, retrying create\n");
+            return cPhs_INIT_e;
+        }
+#endif
+
         dFs_c = new dFile_select_c(resInfo->getArchive());
+#ifdef TARGET_PC
+        fprintf(stderr, "[NAME] dFile_select_c=%p\n", (void*)dFs_c);
+#endif
         JUT_ASSERT(297, dFs_c != NULL);
 
 
@@ -85,6 +112,9 @@ s32 dScnName_c::create() {
         #endif
 
         dFs_c->_create();
+#ifdef TARGET_PC
+        fprintf(stderr, "[NAME] dFile_select_c::_create done\n");
+#endif
 
         if (fpcM_GetName(this) == fpcNm_NAME_SCENE_e) {
             dFs_c->setUseType(0);
@@ -95,6 +125,9 @@ s32 dScnName_c::create() {
         }
 
         mBrightCheck = new dBrightCheck_c(resInfo->getArchive());
+#ifdef TARGET_PC
+        fprintf(stderr, "[NAME] mBrightCheck=%p\n", (void*)mBrightCheck);
+#endif
 
         field_0x420 = 0;
         g_snHIO.id = mDoHIO_CREATE_CHILD("名前登録シーン", &g_snHIO);

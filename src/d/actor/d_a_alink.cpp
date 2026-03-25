@@ -53,6 +53,11 @@
 
 #include "res/Object/Alink.h"
 #include <cstring>
+#ifdef TARGET_PC
+#include <csetjmp>
+extern "C" void pc_crash_set_jmpbuf(jmp_buf*);
+extern "C" uintptr_t pc_crash_get_addr(void);
+#endif
 
 static int daAlink_Create(fopAc_ac_c* i_this);
 static int daAlink_Delete(daAlink_c* i_this);
@@ -4166,6 +4171,15 @@ int daAlink_c::initDemoBck(mDoExt_bckAnm** i_ppbck, char const* i_resName) {
 }
 
 int daAlink_c::createHeap() {
+#ifdef TARGET_PC
+#define ALINK_HEAP_FAIL(step)                              \
+    do {                                                   \
+        fprintf(stderr, "[ALINK] createHeap FAIL: %s\n", step); \
+        return 0;                                          \
+    } while (0)
+#else
+#define ALINK_HEAP_FAIL(step) do { return 0; } while (0)
+#endif
     #if DEBUG
     l_HIO_before = NULL;
     #endif
@@ -4175,35 +4189,35 @@ int daAlink_c::createHeap() {
 
     if (*dStage_roomControl_c::getDemoArcName() != 0) {
         if (!initDemoModel(&mpDemoHLTmpModel, "demo00_Link_cut00_HL_tmp.bmd", 0x1000000)) {
-            return 0;
+            ALINK_HEAP_FAIL("demo HL model");
         }
 
         if (mpDemoHLTmpModel != NULL && !initDemoBck(&mpDemoHLTmpBck, "demo00_Link_cut00_HL_tmp.bck")) {
-            return 0;
+            ALINK_HEAP_FAIL("demo HL bck");
         }
 
         if (!initDemoModel(&mpDemoHRTmpModel, "demo00_Link_cut00_HR_tmp.bmd", 0)) {
-            return 0;
+            ALINK_HEAP_FAIL("demo HR model");
         }
 
         if (mpDemoHRTmpModel != NULL && !initDemoBck(&mpDemoHRTmpBck, "demo00_Link_cut00_HR_tmp.bck")) {
-            return 0;
+            ALINK_HEAP_FAIL("demo HR bck");
         }
 
         if (!initDemoModel(&mpDemoFCBlendModel, "demo00_Link_cut00_FC_blend.bmd", 0)) {
-            return 0;
+            ALINK_HEAP_FAIL("demo FC blend model");
         }
 
         if (!initDemoModel(&mpDemoFCTongueModel, "demo00_Link_cut00_FC_tongue.bmd", 0x200)) {
-            return 0;
+            ALINK_HEAP_FAIL("demo FC tongue model");
         }
 
         if (mpDemoFCTongueModel != NULL && !initDemoBck(&mpDemoFCTmpBck, "demo00_Link_cut00_FC_tmp.bck")) {
-            return 0;
+            ALINK_HEAP_FAIL("demo FC tmp bck");
         }
 
         if (!initDemoBck(&mpDemoHDTmpBck, "demo00_Link_cut00_HD_tmp.bck")) {
-            return 0;
+            ALINK_HEAP_FAIL("demo HD tmp bck");
         }
 
         if (mpDemoHDTmpBck != NULL) {
@@ -4213,114 +4227,121 @@ int daAlink_c::createHeap() {
     }
 
     if (!mSight.create()) {
-        return 0;
+#ifdef TARGET_PC
+        fprintf(stderr, "[ALINK] createHeap WARN: mSight.create failed; continuing without lock cursor\n");
+#else
+        ALINK_HEAP_FAIL("mSight");
+#endif
     }
 
     mpHIO = new daAlinkHIO_c();
     if (mpHIO == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("mpHIO");
     }
 
     if (!(mpWlChangeModel = initModel(dRes_ID_ALINK_BMD_WL_CHANGE_e, 0))) {
-        return 0;
+        ALINK_HEAP_FAIL("WL_CHANGE model");
     }
 
     if (!(mpSwAModel = initModel(dRes_ID_ALINK_BMD_AL_SWA_e, 0x200))) {
-        return 0;
+        ALINK_HEAP_FAIL("AL_SWA model");
     }
 
     if (!(mpSwMModel = initModelEnv(dRes_ID_ALINK_BMD_AL_SWM_e, 0x1000200))) {
-        return 0;
+        ALINK_HEAP_FAIL("AL_SWM model");
     }
 
     if (!(mpSwASheathModel = initModel(dRes_ID_ALINK_BMD_AL_PODA_e, 0))) {
-        return 0;
+        ALINK_HEAP_FAIL("AL_PODA model");
     }
 
     if (!(mpSwMSheathModel = initModelEnv(dRes_ID_ALINK_BMD_AL_PODM_e, 0))) {
-        return 0;
+        ALINK_HEAP_FAIL("AL_PODM model");
     }
 
     int sp38 = 40;
     J3DTransformInfo* sp1C = new J3DTransformInfo[sp38];
     if (sp1C == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("J3DTransformInfo alloc");
     }
 
     Quaternion* sp30 = new Quaternion[sp38];
     if (sp30 == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("Quaternion alloc");
     }
 
     field_0x2060 = new mDoExt_MtxCalcOldFrame(sp1C, sp30);
     if (field_0x2060 == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("MtxCalcOldFrame");
     }
 
     field_0x1f20 = new mDoExt_MtxCalcAnmBlendTblOld(field_0x2060, 3, mNowAnmPackUnder);
     if (field_0x1f20 == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("MtxCalcAnmBlendTblOld under");
     }
 
     field_0x1f24 = new mDoExt_MtxCalcAnmBlendTblOld(field_0x2060, 3, mNowAnmPackUpper);
     if (field_0x1f24 == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("MtxCalcAnmBlendTblOld upper");
     }
 
     for (int i = 0; i < 2; i++) {
         field_0x2180[i] = new daAlink_matAnm_c();
         if (field_0x2180[i] == NULL) {
-            return 0;
+            ALINK_HEAP_FAIL("daAlink_matAnm alloc");
         }
     }
 
     mUnderAnmHeap[0].setBufferSize(0x10800);
     if (mUnderAnmHeap[0].mallocBuffer() == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("mUnderAnmHeap buffer");
     }
 
     field_0x2d78 = new (0x20) u8[0x800];
     if (field_0x2d78 == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("field_0x2d78");
     }
 
     if (mFaceBtpHeap.mallocBuffer() == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("mFaceBtpHeap");
     }
 
     if (mFaceBtkHeap.mallocBuffer() == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("mFaceBtkHeap");
     }
 
     if (mFaceBckHeap.mallocBuffer() == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("mFaceBckHeap");
     }
 
     JKRReadIdxResource(mFaceBckHeap.getBuffer(), 0xC00, dRes_ID_ALANM_BCK_FAT_e, dComIfGp_getAnmArchive());
     J3DAnmTransform* bck = (J3DAnmTransform*)J3DAnmLoaderDataBase::load(mFaceBckHeap.getBuffer());
     if (!mFaceBck.init(bck, FALSE, J3DFrameCtrl::EMode_LOOP, 1.0f, 0, -1, false)) {
-        return 0;
+        ALINK_HEAP_FAIL("mFaceBck.init");
     }
 
     if (mAnmHeap9.mallocBuffer() == NULL) {
-        return 0;
+        ALINK_HEAP_FAIL("mAnmHeap9");
     }
 
     if (mpDemoFCBlendModel != NULL) {
         field_0x069c = new mDoExt_blkAnm();
         if (field_0x069c == NULL) {
-            return 0;
+            ALINK_HEAP_FAIL("mDoExt_blkAnm");
         }
 
         mpDemoFCTmpBls = (J3DDeformData*)dComIfG_getObjectRes(dStage_roomControl_c::getDemoArcName(), "demo00_Link_cut00_FC_tmp.bls");
         if (mpDemoFCTmpBls != NULL) {
             s32 sp28 = mpDemoFCBlendModel->setDeformData(mpDemoFCTmpBls, 1);
             if (sp28 != 0) {
-                return 0;
+                ALINK_HEAP_FAIL("setDeformData");
             }
         }
     }
 
+#ifdef TARGET_PC
+#undef ALINK_HEAP_FAIL
+#endif
     return 1;
 }
 
@@ -4602,7 +4623,22 @@ void daAlink_c::playerInit() {
         }
     }
 
+#ifdef TARGET_PC
+    if (dComIfGp_getPEvtManager()->dataLoaded()) {
+        jmp_buf evtBuf;
+        pc_crash_set_jmpbuf(&evtBuf);
+        if (setjmp(evtBuf) == 0) {
+            dComIfGp_getPEvtManager()->orderStartDemo();
+        } else {
+            fprintf(stderr, "[ALINK] playerInit: orderStartDemo crashed, continuing without start demo\n");
+        }
+        pc_crash_set_jmpbuf(NULL);
+    } else {
+        fprintf(stderr, "[ALINK] playerInit: skipping orderStartDemo (event data not loaded)\n");
+    }
+#else
     dComIfGp_getPEvtManager()->orderStartDemo();
+#endif
     field_0x2f94 = -1;
     field_0x2f95 = -1;
     field_0x2f96 = -1;
@@ -4654,6 +4690,29 @@ int daAlink_c::setStartProcInit() {
     u32 last_mode = getLastSceneMode();
     daHorse_c* horsep = (daHorse_c*)dComIfGp_getHorseActor();
     BOOL isHorseStart = checkHorseStart(last_mode, start_mode);
+#ifdef TARGET_PC
+    if (checkStageName("F_SP102") && dComIfGp_getStartStagePoint() == 100) {
+        /* Opening bridge scene startup on PC can reach this path before all
+         * dependent actors/resources are stable; use plain wait init to avoid
+         * touching rest-HP animation checks that require fully built model state. */
+        procWaitInit();
+        return 0;
+    }
+#endif
+#ifdef TARGET_PC
+    static int s_start_proc_log = 0;
+    if (s_start_proc_log++ < 8) {
+        fprintf(stderr,
+                "[ALINK] setStartProcInit: start_mode=%d last_mode=%u isHorseStart=%d horse=%p\n",
+                start_mode, last_mode, isHorseStart, (void*)horsep);
+        fflush(stderr);
+    }
+#endif
+    if (isHorseStart && horsep == NULL) {
+        /* On PC startup, horse creation can lag one phase behind Link.
+         * Fall back to non-horse init instead of crashing on null horse actor. */
+        isHorseStart = FALSE;
+    }
 
     setDamagePoint(getLastSceneDamage(), last_mode == 4, FALSE, 1);
     mSwordUpTimer = getLastSceneSwordAtUpTime() * 2;
@@ -4760,22 +4819,26 @@ int daAlink_c::setStartProcInit() {
 
             if (checkModeFlg(0x400)) {
                 daHorse_c* horse = dComIfGp_getHorseActor();
-                horse->changeOriginalDemo();
-                horse->changeDemoMode(6, 0);
+                if (horse != NULL) {
+                    horse->changeOriginalDemo();
+                    horse->changeDemoMode(6, 0);
 
-                if (start_mode == 2) {
-                    if (checkStageName("F_SP109") && fopAcM_GetRoomNo(this) == 0 && dComIfGs_getStartPoint() == 35) {
-                        horse->setSpeedF(horse->getNormalMaxSpeedF());
+                    if (start_mode == 2) {
+                        if (checkStageName("F_SP109") && fopAcM_GetRoomNo(this) == 0 && dComIfGs_getStartPoint() == 35) {
+                            horse->setSpeedF(horse->getNormalMaxSpeedF());
+                        } else {
+                            horse->setSpeedF(0.0f);
+                        }
+                    } else if (start_mode == 1) {
+                        horse->setWalkSpeedF();
                     } else {
-                        horse->setSpeedF(0.0f);
+                        horse->setSpeedF(dComIfGs_getLastSceneSpeedF());
                     }
-                } else if (start_mode == 1) {
-                    horse->setWalkSpeedF();
-                } else {
-                    horse->setSpeedF(dComIfGs_getLastSceneSpeedF());
-                }
 
-                procHorseWaitInit();
+                    procHorseWaitInit();
+                } else {
+                    checkWaitAction();
+                }
             } else if (checkSwimAction(1)) {
                 if (start_mode == 1) {
                     if (checkWolf()) {
@@ -4862,6 +4925,19 @@ int daAlink_c::create() {
                           && dComIfG_play_c::getLayerNo(0) == 0
                           && current.pos.y > 7500.0f;
 
+#ifdef TARGET_PC
+    static int s_create_log = 0;
+    if (s_create_log < 12) {
+        fprintf(stderr,
+                "[ALINK] create: room=%d sceneMode=%u startMode=%d startPoint=%d horseStart=%d "
+                "bgWait=%d pos=(%.2f, %.2f, %.2f)\n",
+                fopAcM_GetRoomNo(this), sceneMode, startMode, startPoint, isHorseStart, bgWaitFlg,
+                current.pos.x, current.pos.y, current.pos.z);
+        fflush(stderr);
+        s_create_log++;
+    }
+#endif
+
     if (!bgWaitFlg) {
         #if DEBUG
         if (g_playerKind == 2) {
@@ -4886,6 +4962,11 @@ int daAlink_c::create() {
         dComIfGp_setPlayer(0, this);
         dComIfGp_setLinkPlayer(this);
         fopAcM_setStageLayer(this);
+
+#ifdef TARGET_PC
+        fprintf(stderr, "[ALINK] create: registered player actor=%p\n", (void*)this);
+        fflush(stderr);
+#endif
 
         if (sceneMode == 7) {
             current.pos = dComIfGs_getTurnRestartPos();
@@ -4924,18 +5005,34 @@ int daAlink_c::create() {
         attention_info.flags = -1;
 
         if (!dComIfGp_getEventManager().dataLoaded()) {
+#ifdef TARGET_PC
+            fprintf(stderr, "[ALINK] create: waiting for event manager data\n");
+            fflush(stderr);
+#endif
             return cPhs_INIT_e;
         }
 
         setArcName(checkWolf());
         setOriginalHeap(&mpArcHeap, 0xA2800);
-        if (dComIfG_resLoad(&mPhaseReq, mArcName, mpArcHeap) != cPhs_COMPLEATE_e) {
+        int arcPhase = dComIfG_resLoad(&mPhaseReq, mArcName, mpArcHeap);
+#ifdef TARGET_PC
+        fprintf(stderr, "[ALINK] create: resLoad(%s)=%d heap=%p\n", mArcName, arcPhase,
+                (void*)mpArcHeap);
+        fflush(stderr);
+#endif
+        if (arcPhase != cPhs_COMPLEATE_e) {
             return cPhs_INIT_e;
         }
 
         setShieldArcName();
         setOriginalHeap(&mpShieldArcHeap, 0x7000);
-        if (dComIfG_resLoad(&mShieldPhaseReq, mShieldArcName, mpShieldArcHeap) != cPhs_COMPLEATE_e) {
+        int shieldPhase = dComIfG_resLoad(&mShieldPhaseReq, mShieldArcName, mpShieldArcHeap);
+#ifdef TARGET_PC
+        fprintf(stderr, "[ALINK] create: resLoad(%s)=%d heap=%p\n", mShieldArcName, shieldPhase,
+                (void*)mpShieldArcHeap);
+        fflush(stderr);
+#endif
+        if (shieldPhase != cPhs_COMPLEATE_e) {
             return cPhs_INIT_e;
         }
         
@@ -4943,7 +5040,13 @@ int daAlink_c::create() {
         heapSize |= 0x80000000;
         heapSize |= 0x40000000;
 
-        if (!fopAcM_entrySolidHeap(this, daAlink_createHeap, heapSize)) {
+        bool heapOk = fopAcM_entrySolidHeap(this, daAlink_createHeap, heapSize);
+#ifdef TARGET_PC
+        fprintf(stderr, "[ALINK] create: entrySolidHeap(size=0x%08x)=%d gameHeapFree=%u\n",
+                heapSize, heapOk, mDoExt_getGameHeap() ? mDoExt_getGameHeap()->getFreeSize() : 0);
+        fflush(stderr);
+#endif
+        if (!heapOk) {
             return cPhs_ERROR_e;
         }
 
@@ -4951,6 +5054,10 @@ int daAlink_c::create() {
         field_0x317c = dComIfGp_getPlayerCameraID(0);
 
         playerInit();
+#ifdef TARGET_PC
+        fprintf(stderr, "[ALINK] create: playerInit done\n");
+        fflush(stderr);
+#endif
         bgWaitFlg = TRUE;
 
         if (checkCanoeStart()) {
@@ -4967,17 +5074,47 @@ int daAlink_c::create() {
     mLinkAcch.CrrPos(dComIfG_Bgsp());
     void* portalActor = NULL;
 
-    if (mLinkAcch.GetGroundH() == -G_CM3D_F_INF
-        || (startMode == 14 && !dComIfG_Bgsp().ChkMoveBG(mLinkAcch.m_gnd))
-        || (startPoint == -4 && !(portalActor = fopAcIt_Judge((fopAcIt_JudgeFunc)daAlink_searchPortal, &current.pos)))
-        || (mRideActorID != fpcM_ERROR_PROCESS_ID_e && !fopAcM_SearchByID(mRideActorID))
-        || (checkCanoeStart() && !fopAcIt_Judge((fopAcIt_JudgeFunc)daAlink_searchCanoe, NULL))
-        || (checkBoarStart() && !fopAcIt_Judge((fopAcIt_JudgeFunc)daAlink_searchBoar, NULL))
-        || (startMode == 13 && (!mLinkAcch.ChkWaterHit() || mLinkAcch.m_wtr.GetHeight() < current.pos.y))
-        || ((checkCarryStartLightBallA() || checkCarryStartLightBallB()) && !fopAcIt_Judge((fopAcIt_JudgeFunc)daAlink_searchLightBall, NULL))
-        || (isHorseStart && dComIfGp_getHorseActor() == NULL)
-        )
-    {
+    BOOL noGround = mLinkAcch.GetGroundH() == -G_CM3D_F_INF;
+    BOOL missingMoveBG = startMode == 14 && !dComIfG_Bgsp().ChkMoveBG(mLinkAcch.m_gnd);
+    BOOL missingPortal =
+        startPoint == -4 && !(portalActor = fopAcIt_Judge((fopAcIt_JudgeFunc)daAlink_searchPortal, &current.pos));
+    BOOL missingRideActor = mRideActorID != fpcM_ERROR_PROCESS_ID_e && !fopAcM_SearchByID(mRideActorID);
+    BOOL missingCanoe =
+        checkCanoeStart() && !fopAcIt_Judge((fopAcIt_JudgeFunc)daAlink_searchCanoe, NULL);
+    BOOL missingBoar =
+        checkBoarStart() && !fopAcIt_Judge((fopAcIt_JudgeFunc)daAlink_searchBoar, NULL);
+    BOOL badDiveStart =
+        startMode == 13 && (!mLinkAcch.ChkWaterHit() || mLinkAcch.m_wtr.GetHeight() < current.pos.y);
+    BOOL missingLightBall =
+        (checkCarryStartLightBallA() || checkCarryStartLightBallB()) &&
+        !fopAcIt_Judge((fopAcIt_JudgeFunc)daAlink_searchLightBall, NULL);
+    BOOL missingHorse = isHorseStart && dComIfGp_getHorseActor() == NULL;
+
+#ifdef TARGET_PC
+    /* Opening scene currently lacks some legacy MoveBG resources on PC.
+     * Don't deadlock Link creation waiting for ground/horse in this one startup path. */
+    if (checkStageName("F_SP102") && dComIfGp_getStartStagePoint() == 100) {
+        noGround = FALSE;
+        missingMoveBG = FALSE;
+        missingHorse = FALSE;
+    }
+#endif
+
+    if (noGround || missingMoveBG || missingPortal || missingRideActor || missingCanoe ||
+        missingBoar || badDiveStart || missingLightBall || missingHorse) {
+#ifdef TARGET_PC
+        static int s_wait_log = 0;
+        if (s_wait_log < 20) {
+            fprintf(stderr,
+                    "[ALINK] create: waiting noGround=%d groundH=%.2f moveBG=%d portal=%d "
+                    "rideActor=%d canoe=%d boar=%d dive=%d lightBall=%d horse=%d horseActor=%p\n",
+                    noGround, mLinkAcch.GetGroundH(), missingMoveBG, missingPortal,
+                    missingRideActor, missingCanoe, missingBoar, badDiveStart, missingLightBall,
+                    missingHorse, (void*)dComIfGp_getHorseActor());
+            fflush(stderr);
+            s_wait_log++;
+        }
+#endif
         return cPhs_INIT_e;
     }
 
@@ -5017,8 +5154,72 @@ int daAlink_c::create() {
         mNowAnmPackUpper[0].setAnmTransform(underBck);
     }
 
-    int midna_prm = setStartProcInit();
+    int midna_prm = 0;
+#ifdef TARGET_PC
+    const bool openingBridgeStart =
+        checkStageName("F_SP102") && dComIfGp_getStartStagePoint() == 100;
+    if (openingBridgeStart) {
+        jmp_buf waitInitBuf;
+        pc_crash_set_jmpbuf(&waitInitBuf);
+        if (setjmp(waitInitBuf) == 0) {
+            procWaitInit();
+        } else {
+            fprintf(stderr, "[ALINK] create: procWaitInit crashed (addr=%p), forcing PROC_WAIT\n",
+                    (void*)pc_crash_get_addr());
+            pc_crash_set_jmpbuf(NULL);
+            mProcID = PROC_WAIT;
+        }
+        pc_crash_set_jmpbuf(NULL);
+        midna_prm = 0;
+    } else {
+        jmp_buf startProcBuf;
+        pc_crash_set_jmpbuf(&startProcBuf);
+        if (setjmp(startProcBuf) == 0) {
+            midna_prm = setStartProcInit();
+        } else {
+            fprintf(stderr, "[ALINK] create: setStartProcInit crashed (addr=%p), forcing PROC_WAIT\n",
+                    (void*)pc_crash_get_addr());
+            pc_crash_set_jmpbuf(NULL);
+            mProcID = PROC_WAIT;
+            midna_prm = 0;
+        }
+        pc_crash_set_jmpbuf(NULL);
+    }
+#else
+    midna_prm = setStartProcInit();
+#endif
     setSelectEquipItem(FALSE);
+#ifdef TARGET_PC
+    {
+        jmp_buf matrixBuf;
+        pc_crash_set_jmpbuf(&matrixBuf);
+        if (setjmp(matrixBuf) == 0) {
+            setMatrix();
+        } else {
+            fprintf(stderr, "[ALINK] create: setMatrix crashed (addr=%p), skipping\n",
+                    (void*)pc_crash_get_addr());
+        }
+        pc_crash_set_jmpbuf(NULL);
+    }
+    {
+        jmp_buf modelInitBuf;
+        pc_crash_set_jmpbuf(&modelInitBuf);
+        if (setjmp(modelInitBuf) == 0) {
+            allAnimePlay();
+            if (mpLinkModel) mpLinkModel->calc();
+            playFaceTextureAnime();
+            if (!checkWolf()) {
+                setItemMatrix(0);
+            } else {
+                setWolfItemMatrix();
+            }
+        } else {
+            fprintf(stderr, "[ALINK] create: model init crashed (addr=%p), skipping\n",
+                    (void*)pc_crash_get_addr());
+        }
+        pc_crash_set_jmpbuf(NULL);
+    }
+#else
     setMatrix();
     allAnimePlay();
     mpLinkModel->calc();
@@ -5029,7 +5230,73 @@ int daAlink_c::create() {
     } else {
         setWolfItemMatrix();
     }
+#endif
 
+#ifdef TARGET_PC
+    {
+        jmp_buf postCreateBuf;
+        pc_crash_set_jmpbuf(&postCreateBuf);
+        if (setjmp(postCreateBuf) == 0) {
+            setBodyPartPos();
+            setHangWaterY();
+            mTgCyls[0].SetC(current.pos);
+            field_0x3454 = field_0x3834.y;
+            setAttentionPos();
+            setItemActor();
+
+            if ((dComIfGs_getLastSceneMode() & 0x400000) && !checkWolf() && !checkNotHeavyBootsStage() &&
+                !isHorseStart && !isEnteringLV7)
+            {
+                setHeavyBoots(1);
+            }
+
+            if ((dComIfGs_getLastSceneMode() & 0x200000) && !checkCloudSea()) {
+                onNoResetFlg2(FLG2_UNK_1);
+            }
+
+            if (checkCarryStartLightBallA() || checkCarryStartLightBallB()) {
+                setForceGrab((fopAc_ac_c*)fopAcIt_Judge((fopAcIt_JudgeFunc)daAlink_searchLightBall, NULL),
+                             1, 1);
+            }
+        } else {
+            fprintf(stderr, "[ALINK] create: post-create setup crashed (addr=%p), skipping\n",
+                    (void*)pc_crash_get_addr());
+        }
+        pc_crash_set_jmpbuf(NULL);
+    }
+
+    fprintf(stderr, "[ALINK] create: creating midna...\n");
+    fopAcM_create(fpcNm_MIDNA_e, midna_prm, &current.pos, fopAcM_GetRoomNo(this), &shape_angle, NULL, -1);
+    {
+        jmp_buf npcBuf;
+        pc_crash_set_jmpbuf(&npcBuf);
+        if (setjmp(npcBuf) == 0) {
+            checkSetNpcTks(&current.pos, fopAcM_GetRoomNo(this), 1);
+
+            if (startPoint == -4 && dComIfGp_TargetWarpPt_get() != 0xFF && !dComIfGp_TransportWarp_check()) {
+                daTagMhint_c::createPortalWarpMissTag(0xBBE, fopAcM_GetID(this));
+            }
+
+            stage_stag_info_class* sInfo = dComIfGp_getStage()->getStagInfo();
+            if (sInfo && dStage_stagInfo_GetSaveTbl(sInfo) == dStage_SaveTbl_LV2) {
+                if (!dComIfGs_isItemFirstBit(dItemNo_HYLIA_SHIELD_e) && !dComIfGs_isItemFirstBit(dItemNo_SHIELD_e) &&
+                    !dComIfGs_isItemFirstBit(dItemNo_WOOD_SHIELD_e))
+                {
+                    fopAcM_onSwitch(this, 0x6F);
+                } else {
+                    fopAcM_offSwitch(this, 0x6F);
+                }
+            }
+        } else {
+            fprintf(stderr, "[ALINK] create: npc/portal/stagInfo crashed (addr=%p), skipping\n",
+                    (void*)pc_crash_get_addr());
+        }
+        pc_crash_set_jmpbuf(NULL);
+    }
+
+    fprintf(stderr, "[ALINK] create: COMPLETE (player=%p model=%p)\n", (void*)this, (void*)mpLinkModel);
+    return cPhs_COMPLEATE_e;
+#else
     setBodyPartPos();
     setHangWaterY();
 
@@ -5078,6 +5345,7 @@ int daAlink_c::create() {
     }
 
     return cPhs_COMPLEATE_e;
+#endif
 }
 
 static int daAlink_Create(fopAc_ac_c* actor) {
@@ -6911,8 +7179,25 @@ int daAlink_c::getUnderUpperAnime(daAlink_c::daAlink_ANM i_anmID, J3DAnmTransfor
     if (*i_underBck != NULL) {
         var_r31 = 1;
     } else {
+#ifdef TARGET_PC
+        if (mArcName != NULL) {
+            J3DAnmTransform* arcUnder =
+                (J3DAnmTransform*)dComIfG_getObjectRes(mArcName, bck_data->m_underID);
+            if (arcUnder != NULL) {
+                *i_underBck = arcUnder;
+                var_r31 = 1;
+            } else {
+                *i_underBck = getNowAnmPackUnder((daAlink_UNDER)i_anmPackID);
+                var_r31 = 0;
+            }
+        } else {
+            *i_underBck = getNowAnmPackUnder((daAlink_UNDER)i_anmPackID);
+            var_r31 = 0;
+        }
+#else
         *i_underBck = getNowAnmPackUnder((daAlink_UNDER)i_anmPackID);
         var_r31 = 0;
+#endif
     }
 
     if (bck_data->m_underID != bck_data->m_upperID) {
@@ -6925,7 +7210,22 @@ int daAlink_c::getUnderUpperAnime(daAlink_c::daAlink_ANM i_anmID, J3DAnmTransfor
         if (*i_upperBck != NULL) {
             var_r31 |= 1;
         } else {
+#ifdef TARGET_PC
+            if (mArcName != NULL) {
+                J3DAnmTransform* arcUpper =
+                    (J3DAnmTransform*)dComIfG_getObjectRes(mArcName, bck_data->m_upperID);
+                if (arcUpper != NULL) {
+                    *i_upperBck = arcUpper;
+                    var_r31 |= 1;
+                } else {
+                    *i_upperBck = getNowAnmPackUpper((daAlink_UPPER)i_anmPackID);
+                }
+            } else {
+                *i_upperBck = getNowAnmPackUpper((daAlink_UPPER)i_anmPackID);
+            }
+#else
             *i_upperBck = getNowAnmPackUpper((daAlink_UPPER)i_anmPackID);
+#endif
         }
     } else {
         if (!mUpperAnmHeap[i_anmPackID].checkNoSetIdx()) {
@@ -19662,16 +19962,36 @@ daAlink_c::~daAlink_c() {
 }
 
 static int daAlink_Delete(daAlink_c* i_this) {
+#ifdef TARGET_PC
+    jmp_buf buf;
+    pc_crash_set_jmpbuf(&buf);
+    if (setjmp(buf) != 0) {
+        pc_crash_set_jmpbuf(NULL);
+        fprintf(stderr, "[ALINK] Delete crashed — forcing cleanup\n");
+        dComIfGp_setPlayer(0, NULL);
+        dComIfGp_setLinkPlayer(NULL);
+        return 1;
+    }
+#endif
     fopAcM_RegisterDeleteID(i_this, "ALINK");
 
     if (i_this->getClothesChangeWaitTimer() != 0) {
         i_this->loadModelDVD();
+#ifdef TARGET_PC
+        pc_crash_set_jmpbuf(NULL);
+#endif
         return 0;
     } else if (i_this->getShieldChangeWaitTimer() != 0) {
         i_this->loadShieldModelDVD();
+#ifdef TARGET_PC
+        pc_crash_set_jmpbuf(NULL);
+#endif
         return 0;
     } else {
         i_this->~daAlink_c();
+#ifdef TARGET_PC
+        pc_crash_set_jmpbuf(NULL);
+#endif
         return 1;
     }
 }

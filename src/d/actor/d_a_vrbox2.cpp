@@ -57,35 +57,32 @@ static int daVrbox2_Draw(vrbox2_class* i_this) {
     sp30 = (J3DModelData*)kasumim_model_p;
     for (int i = sp38->getMaterialNum() - 1; i >= 0; i--) {
         J3DMaterial* material_p = sp38->getMaterialNodePointer(i);
-
-        J3DFogInfo* fogInfo_p;
-        if (material_p != NULL) {
-            fogInfo_p = material_p->getFog()->getFogInfo();
+        if (material_p != NULL && material_p->getFog() != NULL) {
+            J3DFogInfo* fogInfo_p = material_p->getFog()->getFogInfo();
+            if (fogInfo_p != NULL) {
+                fogInfo_p->mType = 2;
+            }
         }
-
-        fogInfo_p->mType = 2;
     }
 
     for (int i = sp34->getMaterialNum() - 1; i >= 0; i--) {
         J3DMaterial* material_p = sp34->getMaterialNodePointer(i);
-
-        J3DFogInfo* fogInfo_p;
-        if (material_p != NULL) {
-            fogInfo_p = material_p->getFog()->getFogInfo();
+        if (material_p != NULL && material_p->getFog() != NULL) {
+            J3DFogInfo* fogInfo_p = material_p->getFog()->getFogInfo();
+            if (fogInfo_p != NULL) {
+                fogInfo_p->mType = 2;
+            }
         }
-
-        fogInfo_p->mType = 2;
     }
 
     for (int i = sp30->getMaterialNum() - 1; i >= 0; i--) {
         J3DMaterial* material_p = sp30->getMaterialNodePointer(i);
-
-        J3DFogInfo* fogInfo_p;
-        if (material_p != NULL) {
-            fogInfo_p = material_p->getFog()->getFogInfo();
+        if (material_p != NULL && material_p->getFog() != NULL) {
+            J3DFogInfo* fogInfo_p = material_p->getFog()->getFogInfo();
+            if (fogInfo_p != NULL) {
+                fogInfo_p->mType = 2;
+            }
         }
-
-        fogInfo_p->mType = 2;
     }
 
     if ((g_env_light.vrbox_kasumi_outer_col.r + g_env_light.vrbox_kasumi_outer_col.g +

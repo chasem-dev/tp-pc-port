@@ -238,7 +238,12 @@ bool daObjYobikusa_c::toPickLeaf() {
         mNewLeafTick = 0;
         mPickLeafAmplitude = attr()->mPickLeafInitialAmplitude;
         mPickLeafTick = 0;
-        mPlayerDeltaAngle = fopAcM_searchActorAngleY(this, dComIfGp_getPlayer(0));
+        fopAc_ac_c* player = dComIfGp_getPlayer(0);
+        if (player != NULL) {
+            mPlayerDeltaAngle = fopAcM_searchActorAngleY(this, player);
+        } else {
+            mPlayerDeltaAngle = shape_angle.y;
+        }
         mPlayerDeltaAngle -= 0x2000;
 
         cLib_offBit<u32>(attention_info.flags, fopAc_AttnFlag_CARRY_e);

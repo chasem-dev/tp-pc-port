@@ -6,6 +6,7 @@
 #include "JSystem/JUtility/JUTConsole.h"
 #include "global.h"
 #include <stdint.h>
+#include <cstdio>
 #include <cstdlib>
 
 JKRSolidHeap* JKRSolidHeap::create(u32 size, JKRHeap* heap, bool useErrorHandler) {
@@ -105,6 +106,19 @@ void* JKRSolidHeap::do_alloc(u32 size, int alignment) {
     } else {
         ptr = allocFromTail(size, -alignment < 4 ? 4 : -alignment);
     }
+
+#ifdef TARGET_PC
+    if (ptr == NULL) {
+        static int s_pc_solid_fallback_logs = 0;
+        if (s_pc_solid_fallback_logs < 16) {
+            s_pc_solid_fallback_logs++;
+            fprintf(stderr,
+                    "[HEAP] JKRSolidHeap fallback malloc size=%u align=%d heap=%p free=%u\n",
+                    size, alignment, (void*)this, mFreeSize);
+        }
+        ptr = std::malloc(size);
+    }
+#endif
 
     unlock();
     return ptr;

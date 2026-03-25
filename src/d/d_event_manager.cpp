@@ -14,6 +14,9 @@
 #include "d/d_s_play.h"
 #include "SSystem/SComponent/c_counter.h"
 #include <cstring>
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
 
 #if DEBUG
 static dEvM_HIO_c l_HIO;
@@ -440,6 +443,13 @@ void dEvent_manager_c::roomFinish(int roomNo) {
 int dEvent_manager_c::orderStartDemo() {
     BOOL success = FALSE;
     fopAc_ac_c* var_r26 = NULL;
+
+#ifdef TARGET_PC
+    if (!dataLoaded()) {
+        fprintf(stderr, "[EVMNG] orderStartDemo skipped: event data not loaded\n");
+        return -1;
+    }
+#endif
 
     if (mException.mEventInfoIdx == -2) {
         return -2;

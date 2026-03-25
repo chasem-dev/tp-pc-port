@@ -10,6 +10,7 @@
 #include "JSystem/JKernel/JKRMemArchive.h"
 #include "JSystem/JUtility/JUTAssert.h"
 #include "JSystem/JUtility/JUTException.h"
+#include "pc_bmg_bswap.h"
 #include <cmath>
 #include <cstring>
 #include <stdint.h>
@@ -331,6 +332,11 @@ void* JKRCompArchive::fetchResource(SDIFileEntry *fileEntry, u32 *pSize) {
             *pSize = fileEntry->data_size;
         }
     }
+
+#ifdef TARGET_PC
+    pc_bmg_bswap_file(fileEntry->data, *pSize);
+#endif
+
     return fileEntry->data;
 }
 
@@ -375,6 +381,10 @@ void *JKRCompArchive::fetchResource(void *data, u32 compressedSize, SDIFileEntry
             JUTException::panic(__FILE__, 776, "illegal archive.");
         }
     }
+
+#ifdef TARGET_PC
+    pc_bmg_bswap_file(data, size);
+#endif
 
     if(pSize != NULL) {
         *pSize = size;

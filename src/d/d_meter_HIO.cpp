@@ -4176,7 +4176,12 @@ void dMeter_fmapHIO_c::genMessage(JORMContext* mctx) {
 void dMeter_fmapHIO_c::listenPropertyEvent(const JORPropertyEvent* property) {
     JORReflexible::listenPropertyEvent(property);
     JORFile file;
-    switch(reinterpret_cast<u32>(property->id)) {
+#ifdef TARGET_PC
+    uintptr_t property_id = reinterpret_cast<uintptr_t>(property->id);
+#else
+    u32 property_id = reinterpret_cast<u32>(property->id);
+#endif
+    switch(property_id) {
     case 0x40000001:
         if (file.open(JORFile::EFlags_READ, "フィールドデータ(*.arc)\0*.arc\0すべてのファイル(*.*)\0*.*\0", "arc", NULL, NULL)) {
             if (!mpArcFile) {

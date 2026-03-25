@@ -1758,6 +1758,21 @@ dDlst_list_c::~dDlst_list_c() {
 }
 
 void dDlst_list_c::reset() {
+#ifdef TARGET_PC
+    static int s_reset_cnt = 0;
+    static u32 s_reset_last_r = 0;
+    u32 r = VIGetRetraceCount();
+    s_reset_cnt++;
+    if (r != s_reset_last_r) {
+        static int s_reset_log = 0;
+        if (s_reset_log < 5 && r > 370) {
+            fprintf(stderr, "[RESET] frame %u: %d resets this frame\n", s_reset_last_r, s_reset_cnt);
+            s_reset_log++;
+        }
+        s_reset_cnt = 0;
+        s_reset_last_r = r;
+    }
+#endif
     J3DDrawBuffer** buffer = mDrawBuffers;
     for (int i = 0; i < 21; i++) {
         J3DDrawBuffer* tmp = *buffer;
@@ -1807,11 +1822,24 @@ void dDlst_list_c::drawOpaDrawList(J3DDrawBuffer* pDrawBuf) {
     J3DShape::resetVcdVatCache();
     j3dSys.setDrawModeOpaTexEdge();
 #ifdef TARGET_PC
+    /* One-shot: dump ALL buffer packet counts */
     {
-        static int s_opa_log = 0;
-        if (s_opa_log < 20 && pDrawBuf && pDrawBuf->getEntryTableSize() > 0) {
-            fprintf(stderr, "[DRAWLIST] opaDrawList: entries=%d\n", pDrawBuf->getEntryTableSize());
-            s_opa_log++;
+        static int s_dump_done = 0;
+        if (!s_dump_done && pDrawBuf == mDrawBuffers[DB_OPA_LIST]) {
+            s_dump_done = 1;
+            fprintf(stderr, "[BUFFERS] Packet counts at draw time:\n");
+            const char* names[] = {"SKY","XLU_SKY","P0","BG","XLU_BG","DARK_BG","XLU_DARK_BG",
+                "OPA","XLU","OPA_DARK","XLU_DARK","OPA_PKT","FILTER",
+                "ITEM3D","XLU_ITEM3D","INVIS","XLU_INVIS","Z_XLU","2D_SCR","3DLAST","CURSOR"};
+            for (int i = 0; i < 21; i++) {
+                J3DDrawBuffer* b = mDrawBuffers[i];
+                int n = 0;
+                if (b) {
+                    for (u32 j = 0; j < b->getEntryTableSize(); j++)
+                        for (J3DPacket* p = b->mpBuffer[j]; p; p = p->getNextPacket()) n++;
+                }
+                if (n > 0) fprintf(stderr, "  [%d] %s: %d packets\n", i, names[i], n);
+            }
         }
     }
 #endif

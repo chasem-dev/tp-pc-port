@@ -348,17 +348,56 @@ JPABaseEmitter* daYkgr_c::m_emitter;
 
 const char* daSetBgObj_c::getArcName(fopAc_ac_c* i_this) {
     static char arcName[8];
+    static char legacyArcName[8];
 
     u32 r30 = fopAcM_GetParam(i_this);
     u16 r29 = fopAcM_GetParam(i_this);
     sprintf(arcName, "@bg%04x", r29);
 
-    if (DEBUG && r30 & 0x80000000) {
-        OS_REPORT("\e[43;30m旧仕様の地形ユニットMoveBGが残っています！！！\n\e[m");
+    /* Some stage params still use the old MoveBG archive encoding.
+     * This must work in all builds, not only DEBUG. */
+    if ((r30 & 0x80000000) || (r29 & 0x8000)) {
         u16 r28 = r30 >> 12 & 0x1FF;
         u16 r27 = r30 & 0xFFF;
-        sprintf(arcName, "@%03x%03x", r28, (u16)r27);
+        if (r29 & 0x8000) {
+            /* Some params appear truncated to 16-bit old format values. */
+            r28 = (r29 >> 12) & 0x1FF;
+            r27 = r29 & 0x0FFF;
+        }
+        sprintf(legacyArcName, "@%03x%03x", r28, (u16)r27);
+#ifdef TARGET_PC
+        static int s_bg_name_log = 0;
+        if (s_bg_name_log++ < 24) {
+            fprintf(stderr, "[PC] MoveBG old-encoding param=0x%08x arc='%s' (default='%s')\n",
+                    r30, legacyArcName, arcName);
+        }
+#endif
+        return legacyArcName;
     }
+
+#ifdef TARGET_PC
+    /* Some opening-scene params carry packed flag bits in this 16-bit field.
+     * Recover a valid @bgXXXX id when the raw value is out of known archive range. */
+    if (r29 > 0x63) {
+        u16 repaired = 0xFFFF;
+        if ((r29 >> 8) <= 0x63) {
+            repaired = (r29 >> 8);
+        } else if ((r29 & 0xFF) <= 0x63) {
+            repaired = (r29 & 0xFF);
+        } else if ((r29 >> 4) <= 0x63) {
+            repaired = (r29 >> 4);
+        }
+        if (repaired != 0xFFFF) {
+            sprintf(arcName, "@bg%04x", repaired);
+            static int s_bg_repair_log = 0;
+            if (s_bg_repair_log++ < 24) {
+                fprintf(stderr,
+                        "[PC] MoveBG compact-encoding fallback: param=0x%08x raw=0x%04x repaired='%s'\n",
+                        r30, r29, arcName);
+            }
+        }
+    }
+#endif
     return arcName;
 }
 

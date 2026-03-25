@@ -92,25 +92,49 @@ void daTit_HIO_c::genMessage(JORMContext* mctx) {
 #endif
 
 int daTitle_c::CreateHeap() {
+#ifdef TARGET_PC
+    fprintf(stderr, "[TITLE] CreateHeap: begin\n"); fflush(stderr);
+#endif
     J3DModelData* modelData = (J3DModelData*)dComIfG_getObjectRes(l_arcName, 10);
     JUT_ASSERT(258, modelData);
+#ifdef TARGET_PC
+    fprintf(stderr, "[TITLE] CreateHeap: modelData=%p\n", modelData); fflush(stderr);
+#endif
     mpModel = mDoExt_J3DModel__create(modelData, 0x80000, 0x11000285);
 
     if (mpModel == NULL) {
+#ifdef TARGET_PC
+        fprintf(stderr, "[TITLE] CreateHeap: mDoExt_J3DModel__create FAILED\n"); fflush(stderr);
+#endif
         return 0;
     }
+#ifdef TARGET_PC
+    fprintf(stderr, "[TITLE] CreateHeap: model=%p\n", mpModel); fflush(stderr);
+#endif
 
     int res = mBck.init((J3DAnmTransform*)dComIfG_getObjectRes(l_arcName, 7), 1, 0, 2.0f, 0, -1, false);
     JUT_ASSERT(276, res == 1);
+#ifdef TARGET_PC
+    fprintf(stderr, "[TITLE] CreateHeap: BCK ok\n"); fflush(stderr);
+#endif
 
     res = mBpk.init(modelData, (J3DAnmColor*)dComIfG_getObjectRes(l_arcName, 13), 1, 0, 2.0f, 0, -1);
     JUT_ASSERT(283, res == 1);
+#ifdef TARGET_PC
+    fprintf(stderr, "[TITLE] CreateHeap: BPK ok\n"); fflush(stderr);
+#endif
 
     res = mBrk.init(modelData, (J3DAnmTevRegKey*)dComIfG_getObjectRes(l_arcName, 16), 1, 0, 2.0f, 0, -1);
     JUT_ASSERT(290, res == 1);
+#ifdef TARGET_PC
+    fprintf(stderr, "[TITLE] CreateHeap: BRK ok\n"); fflush(stderr);
+#endif
 
     res = mBtk.init(modelData, (J3DAnmTextureSRTKey*)dComIfG_getObjectRes(l_arcName, 19), 1, 0, 2.0f, 0, -1);
     JUT_ASSERT(297, res == 1);
+#ifdef TARGET_PC
+    fprintf(stderr, "[TITLE] CreateHeap: BTK ok\n"); fflush(stderr);
+#endif
 
     return 1;
 }
@@ -122,17 +146,39 @@ static procFunc daTitleProc[6] = {
 
 int daTitle_c::create() {
     fopAcM_ct(this, daTitle_c);
-    
+
     int phase_state = dComIfG_resLoad(&mPhaseReq, l_arcName);
+#ifdef TARGET_PC
+    static int s_tc = 0;
+    if (s_tc++ < 5) fprintf(stderr, "[TITLE] create: resLoad('%s') = %d\n", l_arcName, phase_state);
+#endif
     if (phase_state != cPhs_COMPLEATE_e) {
         return phase_state;
     }
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[TITLE] create: entrySolidHeap...\n"); fflush(stderr);
+#endif
     if (!fopAcM_entrySolidHeap(this, createHeapCallBack, 0x4000)) {
+#ifdef TARGET_PC
+        fprintf(stderr, "[TITLE] create: entrySolidHeap FAILED — returning ERROR\n");
+#endif
         return cPhs_ERROR_e;
     }
+#ifdef TARGET_PC
+    fprintf(stderr, "[TITLE] create: heap OK, mounting Title2D.arc...\n"); fflush(stderr);
+#endif
 
     mpMount = mDoDvdThd_mountArchive_c::create("/res/Layout/Title2D.arc", 0, NULL);
+#ifdef TARGET_PC
+    if (mpMount == NULL) {
+        fprintf(stderr, "[TITLE] WARNING: Title2D.arc mount returned NULL\n");
+    } else if (mpMount->getArchive() == NULL) {
+        fprintf(stderr, "[TITLE] WARNING: Title2D.arc mounted but archive is NULL\n");
+    } else {
+        fprintf(stderr, "[TITLE] Title2D.arc mounted OK: archive=%p\n", (void*)mpMount->getArchive());
+    }
+#endif
     mIsDispLogo = 0;
     field_0x5f9 = 0;
 
@@ -151,6 +197,14 @@ int daTitle_c::createHeapCallBack(fopAc_ac_c* actor) {
 }
 
 int daTitle_c::Execute() {
+#ifdef TARGET_PC
+    static int s_te = 0;
+    if (s_te++ < 3) fprintf(stderr, "[TITLE] Execute() mProcID=%d\n", mProcID);
+    if (mProcID < 0 || mProcID >= (int)(sizeof(daTitleProc) / sizeof(daTitleProc[0]))) {
+        fprintf(stderr, "[TITLE] Execute: invalid mProcID=%d, resetting to keyWait\n", mProcID);
+        mProcID = 3;
+    }
+#endif
     #if PLATFORM_WII || PLATFORM_SHIELD
     mDoGph_gInf_c::resetDimming();
     #endif
@@ -176,6 +230,9 @@ int daTitle_c::Execute() {
 }
 
 void daTitle_c::KeyWaitAnm() {
+    if (field_0x600 == NULL) {
+        return;
+    }
     if (field_0x5f9 != 0) {
         if (field_0x604 == 0) {
             if (field_0x5fa != 0) {
@@ -211,16 +268,41 @@ void daTitle_c::loadWait_init() {
 }
 
 void daTitle_c::loadWait_proc() {
+#ifdef TARGET_PC
+    if (mpMount == NULL || mpMount->sync()) {
+        /* On PC, skip J2D setup — .blo binary layout has 32/64-bit struct
+         * alignment mismatch that prevents pane parsing. Skip directly to
+         * the 3D model display. TODO: fix J2DPaneInfo struct layout for 64-bit. */
+        mIsDispLogo = 0;  /* Don't try to draw 2D overlay */
+        logoDispAnmInit();  /* Skip straight to logo animation */
+        return;
+    }
+    return; /* Still loading */
+#else
+    if (mpMount == NULL) return;
+#endif
     if (mpMount->sync()) {
+#ifdef TARGET_PC
+        fprintf(stderr, "[TITLE] loadWait: sync OK, setting up 2D...\n"); fflush(stderr);
+#endif
         mpHeap = mDoExt_setCurrentHeap(m2DHeap);
 
         mpFont = mDoExt_getMesgFont();
+#ifdef TARGET_PC
+        fprintf(stderr, "[TITLE] loadWait: font=%p, creating J2DScreen...\n", (void*)mpFont); fflush(stderr);
+#endif
 
         mTitle.Scr = new J2DScreen();
         JUT_ASSERT(529, mTitle.Scr != NULL);
 
+#ifdef TARGET_PC
+        fprintf(stderr, "[TITLE] loadWait: setPriority...\n"); fflush(stderr);
+#endif
         mTitle.Scr->setPriority("zelda_press_start.blo", 0x100000, mpMount->getArchive());
 
+#ifdef TARGET_PC
+        fprintf(stderr, "[TITLE] loadWait: searching panes...\n"); fflush(stderr);
+#endif
         J2DTextBox* text[7];
         text[0] = (J2DTextBox*)mTitle.Scr->search(MULTI_CHAR('t_s_00'));
         text[1] = (J2DTextBox*)mTitle.Scr->search(MULTI_CHAR('t_s_01'));
@@ -230,7 +312,19 @@ void daTitle_c::loadWait_proc() {
         text[5] = (J2DTextBox*)mTitle.Scr->search(MULTI_CHAR('t_s_05'));
         text[6] = (J2DTextBox*)mTitle.Scr->search('t_o');
 
+#ifdef TARGET_PC
+        fprintf(stderr, "[TITLE] loadWait: panes: %p %p %p %p %p %p %p\n",
+                (void*)text[0], (void*)text[1], (void*)text[2], (void*)text[3],
+                (void*)text[4], (void*)text[5], (void*)text[6]);
+        fflush(stderr);
+#endif
         for (int i = 0; i < 7; i++) {
+#ifdef TARGET_PC
+            if (text[i] == NULL) {
+                fprintf(stderr, "[TITLE] loadWait: text[%d] is NULL — skipping\n", i);
+                continue;
+            }
+#endif
             text[i]->setFont(mpFont);
             text[i]->setString(0x80, "");
 
@@ -276,7 +370,9 @@ void daTitle_c::logoDispAnm() {
     mBtk.play();
 
     if (mBrk.isStop() && mBtk.isStop() && mBck.isStop() && mBpk.isStop()) {
-        field_0x600->alphaAnimeStart(0);
+        if (field_0x600 != NULL) {
+            field_0x600->alphaAnimeStart(0);
+        }
         field_0x604 = 0;
         field_0x5f9 = 1;
         field_0x5fa = 1;
@@ -332,7 +428,9 @@ void daTitle_c::fastLogoDispInit() {
     mBrk.setFrame(mBrk.getEndFrame() - 1.0f);
     mBtk.setFrame(mBtk.getEndFrame() - 1.0f);
 
-    field_0x600->alphaAnimeStart(0);
+    if (field_0x600 != NULL) {
+        field_0x600->alphaAnimeStart(0);
+    }
     field_0x604 = 0;
     mWaitTimer = 30;
     mProcID = 5;
@@ -363,39 +461,96 @@ int daTitle_c::getDemoPrm() {
 }
 
 int daTitle_c::Draw() {
+#ifdef TARGET_PC
+    static int s_td = 0;
+    if (s_td++ < 3) fprintf(stderr, "[TITLE] Draw #%d: mpModel=%p\n", s_td, (void*)mpModel);
+    if (mpModel == NULL) {
+        if (s_td < 16) {
+            fprintf(stderr, "[TITLE] Draw: mpModel is NULL, skipping draw\n");
+            fflush(stderr);
+        }
+        return 1;
+    }
+#endif
     J3DModelData* modelData = mpModel->getModelData();
+#ifdef TARGET_PC
+    if (modelData == NULL || mpModel->getBaseTRMtx() == NULL) {
+        if (s_td < 16) {
+            fprintf(stderr, "[TITLE] Draw: invalid model internals data=%p baseMtx=%p, skipping\n",
+                    (void*)modelData, (void*)mpModel->getBaseTRMtx());
+            fflush(stderr);
+        }
+        return 1;
+    }
+#endif
     cMtx_trans(mpModel->getBaseTRMtx(), IREG_F(7), IREG_F(8), IREG_F(9) + -430.0f);
     mpModel->getBaseScale()->x = -1.0f;
 
+#ifdef TARGET_PC
+    /* Skip all animation entry on PC — animation data has byte-swap issues
+     * that corrupt material/TEV state on repeated calls.
+     * TODO: fix J3DAnm byte-swapping for BCK/BPK/BRK/BTK */
+    if (s_td <= 3) { fprintf(stderr, "[TITLE] Draw: skipping anm entry (PC)\n"); fflush(stderr); }
+#else
     mBck.entry(modelData);
     mBpk.entry(modelData);
     mBrk.entry(modelData);
     mBtk.entry(modelData);
+#endif
 
+#ifdef TARGET_PC
+    if (s_td <= 3) { fprintf(stderr, "[TITLE] Draw: setListItem3D...\n"); fflush(stderr); }
+#endif
     dComIfGd_setListItem3D();
+#ifdef TARGET_PC
+    if (s_td <= 3) { fprintf(stderr, "[TITLE] Draw: modelUpdateDL...\n"); fflush(stderr); }
+#endif
     mDoExt_modelUpdateDL(mpModel);
+#ifdef TARGET_PC
+    if (s_td <= 3) { fprintf(stderr, "[TITLE] Draw: setList...\n"); fflush(stderr); }
+#endif
     dComIfGd_setList();
 
+#ifdef TARGET_PC
+    /* Skip 2D overlay until J2D parsing is fixed */
+#else
     if (mIsDispLogo) {
         dComIfGd_set2DOpaTop(&mTitle);
     }
+#endif
 
     return 1;
 }
 
 int daTitle_c::Delete() {
+#ifdef TARGET_PC
+    fprintf(stderr, "[TITLE] Delete()\n"); fflush(stderr);
+#endif
     mDoHIO_DELETE_CHILD(g_daTitHIO.id);
 
     dComIfG_resDelete(&mPhaseReq, l_arcName);
-    delete mTitle.Scr;
-    delete field_0x600;
-    
-    mpMount->getArchive()->removeResourceAll();
-    JKRUnmountArchive(mpMount->getArchive());
-    mpMount->destroy();
+    if (mTitle.Scr != NULL) {
+        delete mTitle.Scr;
+        mTitle.Scr = NULL;
+    }
+    if (field_0x600 != NULL) {
+        delete field_0x600;
+        field_0x600 = NULL;
+    }
+
+    if (mpMount != NULL) {
+        JKRArchive* archive = mpMount->getArchive();
+        if (archive != NULL) {
+            archive->removeResourceAll();
+            JKRUnmountArchive(archive);
+        }
+        mpMount->destroy();
+        mpMount = NULL;
+    }
 
     if (m2DHeap != NULL) {
         m2DHeap->destroy();
+        m2DHeap = NULL;
     }
 
     return 1;

@@ -10,9 +10,31 @@
 #include "JSystem/JKernel/JKRHeap.h"
 #include <os.h>
 #include <cstring>
+#ifdef TARGET_PC
+#include "pc_j3d_bswap.h"
+extern int g_pc_verbose;
+#endif
 
-void* J3DClusterLoaderDataBase::load(const void* i_data) {
+void* J3DClusterLoaderDataBase::load(const void* i_data, u32 i_dataSizeLimit) {
     J3D_ASSERT_NULLPTR(41, i_data);
+#ifdef TARGET_PC
+    if (i_data) {
+        uint32_t headerSize = 0;
+        const char* reason = "ok";
+        uint32_t swapSize = pc_j3d_get_safe_swap_size(i_data, i_dataSizeLimit, &headerSize, &reason);
+        if (swapSize > 0) {
+            if (g_pc_verbose && (i_dataSizeLimit != 0 || headerSize != swapSize)) {
+                fprintf(stderr,
+                        "[J3D] bls swap size: header=%u limit=%u effective=%u reason=%s ptr=%p\n",
+                        headerSize, i_dataSizeLimit, swapSize, reason, i_data);
+            }
+            pc_j3d_bswap_file(const_cast<void*>(i_data), swapSize);
+        } else if (g_pc_verbose) {
+            fprintf(stderr, "[J3D] bls swap skipped: header=%u limit=%u reason=%s ptr=%p\n",
+                    headerSize, i_dataSizeLimit, reason, i_data);
+        }
+    }
+#endif
     const JUTDataFileHeader* fileHeader = (JUTDataFileHeader*)i_data;
     if (fileHeader->mMagic == 'J3D1' && fileHeader->mType == 'bls1') {
         J3DClusterLoader_v15 loader;

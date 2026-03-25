@@ -5,10 +5,17 @@
 #include "JSystem/J3DGraphBase/J3DVertex.h"
 #include "JSystem/J3DGraphBase/J3DFifo.h"
 #include <gd.h>
+#ifdef TARGET_PC
+extern int g_pc_verbose;
+extern "C" void pc_gx_set_array_count(u32 attr, u32 count);
+#endif
 
 void J3DGDSetVtxAttrFmtv(_GXVtxFmt, GXVtxAttrFmtList const*, bool);
 void J3DFifoLoadPosMtxImm(Mtx, u32);
 void J3DFifoLoadNrmMtxImm(Mtx, u32);
+
+static const u32 kMaxSafeVtxDescEntries = 32;
+static const u32 kMaxSafeVtxAttrFmtEntries = 32;
 
 void J3DShape::initialize() {
     mMaterial = NULL;
@@ -43,7 +50,10 @@ void J3DShape::addTexMtxIndexInDL(GXAttr attr, u32 valueBase) {
     s32 stride = 0;
     bool found = false;
 
-    for (GXVtxDescList* vtxDesc = getVtxDesc(); vtxDesc->attr != GX_VA_NULL; vtxDesc++) {
+    u32 safeDescCount = 0;
+    for (GXVtxDescList* vtxDesc = getVtxDesc();
+         vtxDesc->attr != GX_VA_NULL && safeDescCount++ < kMaxSafeVtxDescEntries; vtxDesc++)
+    {
         if (vtxDesc->attr == GX_VA_PNMTXIDX)
             pnmtxidxOffs = stride;
 
@@ -52,6 +62,9 @@ void J3DShape::addTexMtxIndexInDL(GXAttr attr, u32 valueBase) {
             found = true;
         }
 
+        if ((u32)vtxDesc->type >= 4) {
+            continue;
+        }
         stride = stride + kSize[vtxDesc->type];
     }
 
@@ -72,7 +85,8 @@ void J3DShape::addTexMtxIndexInVcd(GXAttr attr) {
     GXVtxDescList* vtxDesc = getVtxDesc();
     s32 attrCount = 0;
 
-    for (; vtxDesc->attr != GX_VA_NULL; vtxDesc++) {
+    u32 safeDescCount = 0;
+    for (; vtxDesc->attr != GX_VA_NULL && safeDescCount++ < kMaxSafeVtxDescEntries; vtxDesc++) {
         if (vtxDesc->attr == GX_VA_PNMTXIDX) {
             attrIdx = stride;
         }
@@ -87,7 +101,8 @@ void J3DShape::addTexMtxIndexInVcd(GXAttr attr) {
 
     vtxDesc = getVtxDesc();
     GXVtxDescList* dst = newVtxDesc;
-    for (; vtxDesc->attr != GX_VA_NULL; vtxDesc++) {
+    safeDescCount = 0;
+    for (; vtxDesc->attr != GX_VA_NULL && safeDescCount++ < kMaxSafeVtxDescEntries; vtxDesc++) {
         if ((attr < vtxDesc->attr) && !inserted) {
             dst->attr = attr;
             dst->type = GX_DIRECT;
@@ -99,6 +114,10 @@ void J3DShape::addTexMtxIndexInVcd(GXAttr attr) {
 
         dst->attr = vtxDesc->attr;
         dst->type = vtxDesc->type;
+        if ((u32)vtxDesc->type >= 4) {
+            dst++;
+            continue;
+        }
         stride = stride + kSize[vtxDesc->type];
         dst++;
     }
@@ -129,8 +148,15 @@ void J3DLoadCPCmd(u8 addr, u32 val) {
 }
 
 static void J3DLoadArrayBasePtr(GXAttr attr, void* data) {
+#ifdef TARGET_PC
+    /* On PC, store the full 64-bit pointer via GXSetArray.
+     * GC used 26-bit physical addresses via CP registers which can't hold 64-bit pointers. */
+    if (data != NULL)
+        GXSetArray(attr, data, 0);
+#else
     u32 idx = (attr == GX_VA_NBT) ? 1 : (attr - GX_VA_POS);
     J3DLoadCPCmd(0xA0 + idx, ((uintptr_t)data & 0x7FFFFFFF));
+#endif
 }
 
 void J3DShape::loadVtxArray() const {
@@ -158,12 +184,15 @@ void J3DShape::makeVtxArrayCmd() {
 
     u8 stride[12];
     void* array[12];
+    u32 arrayCount[12];
     for (u32 i = 0; i < 12; i++) {
         stride[i] = 0;
         array[i] = 0;
+        arrayCount[i] = 0;
     }
 
-    for (; vtxAttr->attr != GX_VA_NULL; vtxAttr++) {
+    u32 safeFmtCount = 0;
+    for (; vtxAttr->attr != GX_VA_NULL && safeFmtCount++ < kMaxSafeVtxAttrFmtEntries; vtxAttr++) {
         switch (vtxAttr->attr) {
         case GX_VA_POS: {
             if (vtxAttr->type == GX_F32)
@@ -172,7 +201,12 @@ void J3DShape::makeVtxArrayCmd() {
                 stride[vtxAttr->attr - GX_VA_POS] = 6;
 
             array[vtxAttr->attr - GX_VA_POS] = mVertexData->getVtxPosArray();
-            mVertexData->setVtxPosFrac((u8)vtxAttr->frac);
+            arrayCount[vtxAttr->attr - GX_VA_POS] = mVertexData->getVtxNum();
+            u8 posFrac = (u8)vtxAttr->frac;
+            if (posFrac > 16) {
+                posFrac = 0;
+            }
+            mVertexData->setVtxPosFrac(posFrac);
             mVertexData->setVtxPosType((GXCompType)vtxAttr->type);
         } break;
         case GX_VA_NRM: {
@@ -182,13 +216,19 @@ void J3DShape::makeVtxArrayCmd() {
                 stride[vtxAttr->attr - GX_VA_POS] = 6;
 
             array[vtxAttr->attr - GX_VA_POS] = mVertexData->getVtxNrmArray();
-            mVertexData->setVtxNrmFrac((u8)vtxAttr->frac);
+            arrayCount[vtxAttr->attr - GX_VA_POS] = mVertexData->getNrmNum();
+            u8 nrmFrac = (u8)vtxAttr->frac;
+            if (nrmFrac > 16) {
+                nrmFrac = 0;
+            }
+            mVertexData->setVtxNrmFrac(nrmFrac);
             mVertexData->setVtxNrmType((GXCompType)vtxAttr->type);
         } break;
         case GX_VA_CLR0:
         case GX_VA_CLR1: {
             stride[vtxAttr->attr - GX_VA_POS] = 4;
             array[vtxAttr->attr - GX_VA_POS] = mVertexData->getVtxColorArray(vtxAttr->attr - GX_VA_CLR0);
+            arrayCount[vtxAttr->attr - GX_VA_POS] = mVertexData->getColNum();
         } break;
         case GX_VA_TEX0:
         case GX_VA_TEX1:
@@ -204,6 +244,7 @@ void J3DShape::makeVtxArrayCmd() {
                 stride[vtxAttr->attr - GX_VA_POS] = 4;
 
             array[vtxAttr->attr - GX_VA_POS] = mVertexData->getVtxTexCoordArray(vtxAttr->attr - GX_VA_TEX0);
+            arrayCount[vtxAttr->attr - GX_VA_POS] = mVertexData->getTexCoordNum();
         } break;
         default:
             break;
@@ -212,17 +253,22 @@ void J3DShape::makeVtxArrayCmd() {
 
     GXVtxDescList* vtxDesc = mVtxDesc;
     mHasPNMTXIdx = false;
-    for (; vtxDesc->attr != GX_VA_NULL; vtxDesc++) {
+    u32 safeDescCount = 0;
+    for (; vtxDesc->attr != GX_VA_NULL && safeDescCount++ < kMaxSafeVtxDescEntries; vtxDesc++) {
         if (vtxDesc->attr == GX_VA_NBT && vtxDesc->type != GX_NONE) {
             mHasNBT = true;
             stride[GX_VA_NRM - GX_VA_POS] *= 3;
             array[GX_VA_NRM - GX_VA_POS] = mVertexData->getVtxNBTArray();
+            arrayCount[GX_VA_NRM - GX_VA_POS] = mVertexData->getNrmNum();
         } else if (vtxDesc->attr == GX_VA_PNMTXIDX && vtxDesc->type != GX_NONE) {
             mHasPNMTXIdx = true;
         }
     }
 
     for (u32 i = 0; i < 12; i++) {
+#ifdef TARGET_PC
+        pc_gx_set_array_count((u32)(i + GX_VA_POS), arrayCount[i]);
+#endif
         if (array[i] != 0)
             GDSetArray((GXAttr)(i + GX_VA_POS), array[i], stride[i]);
         else
@@ -254,12 +300,75 @@ void J3DShape::loadCurrentMtx() const {
 }
 
 void J3DShape::loadPreDrawSetting() const {
+#ifdef TARGET_PC
+    if (sOldVcdVatCmd != mVcdVatCmd) {
+        /* Keep PC vertex decode in sync even when VCD/VAT DL decode is partial. */
+        GXClearVtxDesc();
+        bool badDesc = false;
+        u32 validDescCount = 0;
+        bool hasPos = false;
+        bool hasNrm = false;
+        bool hasTex0 = false;
+        static int s_vtxdesc_log = 0;
+        if (g_pc_verbose && s_vtxdesc_log++ < 24) {
+            fprintf(stderr, "[J3D-VTXDESC] shape=%p idx=%d:", (void*)this, mIndex);
+            u32 dbgCount = 0;
+            for (const GXVtxDescList* d = mVtxDesc;
+                 d->attr != GX_VA_NULL && dbgCount++ < kMaxSafeVtxDescEntries; d++)
+            {
+                fprintf(stderr, " %u=%u", (unsigned)d->attr, (unsigned)d->type);
+            }
+            fprintf(stderr, "\n");
+            fflush(stderr);
+        }
+        u32 safeDescCount = 0;
+        for (const GXVtxDescList* desc = mVtxDesc;
+             desc->attr != GX_VA_NULL && safeDescCount++ < kMaxSafeVtxDescEntries; desc++)
+        {
+            if ((u32)desc->attr > GX_VA_TEX7 || (u32)desc->type > GX_INDEX16) {
+                badDesc = true;
+                break;
+            }
+            GXSetVtxDesc(desc->attr, desc->type);
+            validDescCount++;
+            hasPos |= (desc->attr == GX_VA_POS);
+            hasNrm |= (desc->attr == GX_VA_NRM || desc->attr == GX_VA_NBT);
+            hasTex0 |= (desc->attr == GX_VA_TEX0);
+        }
+
+        if (badDesc || validDescCount == 0 || !hasPos) {
+            /* Mixed-endian SHP1 can corrupt VtxDesc entries; use common indexed layout. */
+            GXClearVtxDesc();
+            GXSetVtxDesc(GX_VA_POS, GX_INDEX16);
+            if (!hasNrm) {
+                GXSetVtxDesc(GX_VA_NRM, GX_INDEX16);
+            }
+            if (!hasTex0) {
+                GXSetVtxDesc(GX_VA_TEX0, GX_INDEX16);
+            }
+        }
+
+        if (mVertexData) {
+            GXVtxAttrFmtList* fmts = mVertexData->getVtxAttrFmtList();
+            u32 safeFmtCount = 0;
+            for (; fmts->attr != GX_VA_NULL && safeFmtCount++ < kMaxSafeVtxAttrFmtEntries; fmts++) {
+                u8 frac = fmts->frac;
+                if (frac > 16) {
+                    frac = 0;
+                }
+                GXSetVtxAttrFmt(GX_VTXFMT0, fmts->attr, fmts->cnt, fmts->type, frac);
+            }
+        }
+        sOldVcdVatCmd = mVcdVatCmd;
+    }
+    mCurrentMtx.load();
+#else
     if (sOldVcdVatCmd != mVcdVatCmd) {
         GXCallDisplayList(mVcdVatCmd, kVcdVatDLSize);
         sOldVcdVatCmd = mVcdVatCmd;
     }
-
     mCurrentMtx.load();
+#endif
 }
 
 bool J3DShape::sEnvelopeFlag;
@@ -315,6 +424,27 @@ void J3DShape::simpleDraw() const {
     loadPreDrawSetting();
     J3DShapeMtx::setCurrentPipeline((mFlags & 0x1C) >> 2);
     loadVtxArray();
+#ifdef TARGET_PC
+    static int s_sd = 0;
+    static bool s_logged_nonzero = false;
+    s_sd++;
+    if (!s_logged_nonzero && mMtxGroupNum > 0) {
+        s_logged_nonzero = true;
+        fprintf(stderr, "[J3D] simpleDraw: shape=%p idx=%d mtxGrps=%d (call #%d)\n",
+                (void*)this, mIndex, mMtxGroupNum, s_sd);
+        for (u16 i = 0; i < mMtxGroupNum && i < 4; i++) {
+            J3DShapeDraw* sd = mShapeDraw[i];
+            fprintf(stderr, "  grp[%d]: draw=%p dl=%p dlSize=%d\n", i, (void*)sd,
+                    sd ? (void*)sd->getDisplayList() : NULL,
+                    sd ? sd->getDisplayListSize() : 0);
+        }
+        fflush(stderr);
+    }
+    if (s_sd <= 3) {
+        fprintf(stderr, "[J3D] simpleDraw #%d: mtxGrps=%d\n", s_sd, mMtxGroupNum);
+        fflush(stderr);
+    }
+#endif
     for (u16 n = mMtxGroupNum, i = 0; i < n; i++) {
         if (mShapeDraw[i] != NULL) {
             mShapeDraw[i]->draw();

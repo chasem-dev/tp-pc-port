@@ -61,6 +61,16 @@ void JUTFader::draw() {
 bool JUTFader::startFadeIn(int param_0) {
     bool statusCheck = mStatus == 0;
 
+#ifdef TARGET_PC
+    /* On PC, the draw function may call startFadeIn before control() finishes
+     * the previous fade-out (status 3). Force completion so the new fade can start. */
+    if (!statusCheck && mStatus == 3) {
+        mStatus = 0;
+        mColor.a = 0xFF;
+        statusCheck = true;
+    }
+#endif
+
     if (statusCheck) {
         mStatus = 2;
         field_0xa = 0;
@@ -72,6 +82,15 @@ bool JUTFader::startFadeIn(int param_0) {
 
 bool JUTFader::startFadeOut(int param_0) {
     bool statusCheck = mStatus == 1;
+
+#ifdef TARGET_PC
+    /* Same race fix for startFadeOut: if a fade-in is nearly complete, force it. */
+    if (!statusCheck && mStatus == 2) {
+        mStatus = 1;
+        mColor.a = 0;
+        statusCheck = true;
+    }
+#endif
 
     if (statusCheck) {
         mStatus = 3;

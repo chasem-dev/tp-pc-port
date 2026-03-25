@@ -1,5 +1,25 @@
 #include "d/dolzel.h" // IWYU pragma: keep
 
+#ifdef TARGET_PC
+#include "pc_bswap.h"
+#include <type_traits>
+#include <vector>
+static void* s_dzs_base = NULL;
+static dStage_nodeHeader* s_dzs_nodes = NULL;
+static int s_dzs_node_count = 0;
+static std::vector<void*> s_dzs_wrapper_allocs;
+static std::vector<const void*> s_dzs_swapped_entries;
+#endif
+/* Cast a node's m_offset to a typed pointer. Works on both 32-bit and 64-bit. */
+#define DZS_PTR(node, Type) ((Type*)(node)->m_offset)
+
+#ifdef TARGET_PC
+/* On 64-bit, (char*)i_data + 4 can't be overlaid on structs with pointer
+ * members. Use DZS_DATA() to get the data pointer from a node callback. */
+#define DZS_DATA(i_data, Type) DZS_PTR(((dStage_nodeHeader*)(i_data)), Type)
+#else
+#define DZS_DATA(i_data, Type) ((Type*)((char*)(i_data) + 4))
+#endif
 #include "JSystem/JKernel/JKRAramArchive.h"
 #include "JSystem/JKernel/JKRExpHeap.h"
 #include "SSystem/SComponent/c_malloc.h"
@@ -21,6 +41,447 @@
 #include "m_Do/m_Do_Reset.h"
 #include <cstdio>
 #include <cstring>
+
+#ifdef TARGET_PC
+static inline void dStage_bswapU16(u16& value) {
+    value = pc_bswap16(value);
+}
+
+static inline void dStage_bswapS16(s16& value) {
+    value = (s16)pc_bswap16((u16)value);
+}
+
+static inline void dStage_bswapU32(u32& value) {
+    value = pc_bswap32(value);
+}
+
+static inline void dStage_bswapF32(f32& value) {
+    u32 raw = pc_bswap32(*(u32*)&value);
+    *(u32*)&value = raw;
+}
+
+static bool dStage_markEntriesSwapped(const void* entries) {
+    if (entries == NULL) {
+        return false;
+    }
+
+    for (const void* swapped : s_dzs_swapped_entries) {
+        if (swapped == entries) {
+            return false;
+        }
+    }
+
+    s_dzs_swapped_entries.push_back(entries);
+    return true;
+}
+
+static void dStage_clearPcDecodeState() {
+    for (void* wrapper : s_dzs_wrapper_allocs) {
+        ::operator delete(wrapper);
+    }
+
+    s_dzs_wrapper_allocs.clear();
+    s_dzs_swapped_entries.clear();
+}
+
+template <typename Wrapper>
+static Wrapper* dStage_allocWrapper() {
+    Wrapper* wrapper = static_cast<Wrapper*>(::operator new(sizeof(Wrapper)));
+    memset(wrapper, 0, sizeof(Wrapper));
+    s_dzs_wrapper_allocs.push_back(wrapper);
+    return wrapper;
+}
+
+static void dStage_swapActorBase(fopAcM_prmBase_class& base) {
+    dStage_bswapU32(base.parameters);
+    dStage_bswapF32(base.position.x);
+    dStage_bswapF32(base.position.y);
+    dStage_bswapF32(base.position.z);
+    dStage_bswapS16(base.angle.x);
+    dStage_bswapS16(base.angle.y);
+    dStage_bswapS16(base.angle.z);
+    dStage_bswapU16(base.setID);
+}
+
+static void dStage_swapActorEntry(stage_actor_data_class& entry) {
+    dStage_swapActorBase(entry.base);
+}
+
+static void dStage_swapTresureEntry(stage_tresure_data_class& entry) {
+    dStage_swapActorBase(entry.base);
+}
+
+static void dStage_swapTgscEntry(stage_tgsc_data_class& entry) {
+    dStage_swapActorBase(entry.base);
+}
+
+static void dStage_swapArrowEntry(stage_arrow_data_class& entry) {
+    dStage_bswapF32(entry.posX);
+    dStage_bswapF32(entry.posY);
+    dStage_bswapF32(entry.posZ);
+    dStage_bswapS16(entry.angleX);
+    dStage_bswapS16(entry.angleY);
+    dStage_bswapS16(entry.angleZ);
+    dStage_bswapS16(entry.field_0x12);
+}
+
+static void dStage_swapCameraEntry(stage_camera2_data_class& entry) {
+    dStage_bswapU16(entry.field_0x14);
+    dStage_bswapU16(entry.field_0x16);
+}
+
+static void dStage_swapMultiEntry(dStage_Mult_info& entry) {
+    dStage_bswapF32(entry.mTransX);
+    dStage_bswapF32(entry.mTransY);
+    dStage_bswapS16(entry.mAngle);
+}
+
+static void dStage_swapFloorEntry(dStage_FloorInfo_dt_c& entry) {
+    dStage_bswapU32((u32&)entry.field_0x00);
+}
+
+static void dStage_swapSoundEntry(stage_sound_data& entry) {
+    dStage_bswapF32(entry.field_0x8.x);
+    dStage_bswapF32(entry.field_0x8.y);
+    dStage_bswapF32(entry.field_0x8.z);
+}
+
+static void dStage_swapDMapEntry(dStage_DMap_dt_c& entry) {
+    dStage_bswapU32((u32&)entry.field_0x00);
+    dStage_bswapU32((u32&)entry.field_0x04);
+    dStage_bswapU32((u32&)entry.field_0x08);
+    dStage_bswapF32(entry.offsetY);
+}
+
+static void dStage_swapPointEntry(dPnt& entry) {
+    dStage_bswapF32(entry.m_position.x);
+    dStage_bswapF32(entry.m_position.y);
+    dStage_bswapF32(entry.m_position.z);
+}
+
+static void dStage_swapPathList(dPath* path, int count, u32 pointOffset) {
+    if (path == NULL || !dStage_markEntriesSwapped(path)) {
+        return;
+    }
+
+    for (int i = 0; i < count; i++) {
+        dStage_bswapU16(path[i].m_num);
+        dStage_bswapU16(path[i].m_nextID);
+        dStage_bswapU32((u32&)path[i].m_points);
+        path[i].m_points =
+            pointOffset != 0 ? (dPnt*)((uintptr_t)s_dzs_base + pointOffset + (uintptr_t)path[i].m_points)
+                             : NULL;
+    }
+}
+
+template <typename Wrapper, typename Entry, int Wrapper::*CountMember, Entry* Wrapper::*EntriesMember>
+static Wrapper* dStage_makeCountedWrapper(const dStage_nodeHeader* node,
+                                          void (*swapEntry)(Entry&) = NULL) {
+    Wrapper* wrapper = dStage_allocWrapper<Wrapper>();
+    Entry* entries = DZS_PTR(node, Entry);
+
+    wrapper->*CountMember = node->m_entryNum;
+    wrapper->*EntriesMember = entries;
+
+    if (swapEntry != NULL && dStage_markEntriesSwapped(entries)) {
+        for (int i = 0; i < node->m_entryNum; i++) {
+            swapEntry(entries[i]);
+        }
+    }
+
+    return wrapper;
+}
+
+static stage_actor_class* dStage_getActorNode(void* i_data) {
+    return dStage_makeCountedWrapper<stage_actor_class, stage_actor_data_class,
+                                     &stage_actor_class::num, &stage_actor_class::m_entries>(
+        (dStage_nodeHeader*)i_data, dStage_swapActorEntry);
+}
+
+static stage_camera_class* dStage_getCameraNode(void* i_data) {
+    return dStage_makeCountedWrapper<stage_camera_class, stage_camera2_data_class,
+                                     &stage_camera_class::num, &stage_camera_class::m_entries>(
+        (dStage_nodeHeader*)i_data, dStage_swapCameraEntry);
+}
+
+static stage_arrow_class* dStage_getArrowNode(void* i_data) {
+    return dStage_makeCountedWrapper<stage_arrow_class, stage_arrow_data_class,
+                                     &stage_arrow_class::num, &stage_arrow_class::m_entries>(
+        (dStage_nodeHeader*)i_data, dStage_swapArrowEntry);
+}
+
+static stage_tgsc_class* dStage_getTgscNode(void* i_data) {
+    return dStage_makeCountedWrapper<stage_tgsc_class, stage_tgsc_data_class,
+                                     &stage_tgsc_class::num, &stage_tgsc_class::m_entries>(
+        (dStage_nodeHeader*)i_data, dStage_swapTgscEntry);
+}
+
+static stage_scls_info_dummy_class* dStage_getSclsNode(void* i_data) {
+    return dStage_makeCountedWrapper<stage_scls_info_dummy_class, stage_scls_info_class,
+                                     &stage_scls_info_dummy_class::num,
+                                     &stage_scls_info_dummy_class::m_entries>(
+        (dStage_nodeHeader*)i_data);
+}
+
+static dStage_SoundInfo_c* dStage_getSoundNode(void* i_data) {
+    return dStage_makeCountedWrapper<dStage_SoundInfo_c, stage_sound_data,
+                                     &dStage_SoundInfo_c::num, &dStage_SoundInfo_c::entries>(
+        (dStage_nodeHeader*)i_data, dStage_swapSoundEntry);
+}
+
+static dStage_MapEventInfo_c* dStage_getMapEventNode(void* i_data) {
+    return dStage_makeCountedWrapper<dStage_MapEventInfo_c, dStage_MapEvent_dt_c,
+                                     &dStage_MapEventInfo_c::num,
+                                     &dStage_MapEventInfo_c::m_entries>((dStage_nodeHeader*)i_data);
+}
+
+static dStage_FloorInfo_c* dStage_getFloorNode(void* i_data) {
+    return dStage_makeCountedWrapper<dStage_FloorInfo_c, dStage_FloorInfo_dt_c,
+                                     &dStage_FloorInfo_c::num,
+                                     &dStage_FloorInfo_c::m_entries>((dStage_nodeHeader*)i_data,
+                                                                     dStage_swapFloorEntry);
+}
+
+static dStage_MemoryMap_c* dStage_getMemoryMapNode(void* i_data) {
+    dStage_MemoryMap_c* wrapper =
+        dStage_makeCountedWrapper<dStage_MemoryMap_c, u32, &dStage_MemoryMap_c::m_num,
+                                  &dStage_MemoryMap_c::field_0x4>((dStage_nodeHeader*)i_data);
+
+    if (dStage_markEntriesSwapped(wrapper->field_0x4)) {
+        for (int i = 0; i < wrapper->m_num; i++) {
+            dStage_bswapU32(wrapper->field_0x4[i]);
+        }
+    }
+
+    return wrapper;
+}
+
+static dStage_MemoryConfig_c* dStage_getMemoryConfigNode(void* i_data) {
+    return dStage_makeCountedWrapper<dStage_MemoryConfig_c, dStage_MemoryConfig_data,
+                                     &dStage_MemoryConfig_c::m_num,
+                                     &dStage_MemoryConfig_c::field_0x4>((dStage_nodeHeader*)i_data);
+}
+
+static dStage_Multi_c* dStage_getMultiNode(void* i_data) {
+    return dStage_makeCountedWrapper<dStage_Multi_c, dStage_Mult_info, &dStage_Multi_c::num,
+                                     &dStage_Multi_c::m_entries>((dStage_nodeHeader*)i_data,
+                                                                 dStage_swapMultiEntry);
+}
+
+static dStage_Lbnk_c* dStage_getLbnkNode(void* i_data) {
+    return dStage_makeCountedWrapper<dStage_Lbnk_c, dStage_Lbnk_dt_c, &dStage_Lbnk_c::num,
+                                     &dStage_Lbnk_c::entries>((dStage_nodeHeader*)i_data);
+}
+
+static stage_tresure_class* dStage_getStageTresureNode(void* i_data) {
+    return dStage_makeCountedWrapper<stage_tresure_class, stage_tresure_data_class,
+                                     &stage_tresure_class::num,
+                                     &stage_tresure_class::m_entries>((dStage_nodeHeader*)i_data,
+                                                                      dStage_swapTresureEntry);
+}
+
+static dStage_DMap_c* dStage_getDMapNode(void* i_data) {
+    return dStage_makeCountedWrapper<dStage_DMap_c, dStage_DMap_dt_c, &dStage_DMap_c::num,
+                                     &dStage_DMap_c::entries>((dStage_nodeHeader*)i_data,
+                                                              dStage_swapDMapEntry);
+}
+
+static dStage_Elst_c* dStage_getElstNode(void* i_data) {
+    return dStage_makeCountedWrapper<dStage_Elst_c, dStage_Elst_dt_c, &dStage_Elst_c::m_entryNum,
+                                     &dStage_Elst_c::m_entries>((dStage_nodeHeader*)i_data);
+}
+
+static dTres_c::list_class* dStage_getTresureListNode(void* i_data) {
+    dTres_c::list_class* wrapper = dStage_allocWrapper<dTres_c::list_class>();
+    dStage_nodeHeader* node = (dStage_nodeHeader*)i_data;
+    wrapper->field_0x0 = node->m_entryNum;
+    wrapper->field_0x4 = DZS_PTR(node, dTres_c::typeGroupData_c);
+    wrapper->mNumber = 0;
+    return wrapper;
+}
+
+static u16 dStage_readBE16(const u8* raw) {
+    return (u16)((raw[0] << 8) | raw[1]);
+}
+
+static u32 dStage_readBE32(const u8* raw) {
+    return (u32)((raw[0] << 24) | (raw[1] << 16) | (raw[2] << 8) | raw[3]);
+}
+
+template <typename T>
+static T* dStage_allocArray(int count) {
+    if (count <= 0) {
+        return NULL;
+    }
+
+    T* data = static_cast<T*>(::operator new(sizeof(T) * count));
+    memset(data, 0, sizeof(T) * count);
+    s_dzs_wrapper_allocs.push_back(data);
+    return data;
+}
+
+static u16* dStage_parseMapPathIndexData(const u8* base, u32 offset, int count, int* maxIndex) {
+    if (offset == 0 || count <= 0) {
+        return NULL;
+    }
+
+    const u8* raw = base + offset;
+    u16* data = dStage_allocArray<u16>(count);
+    for (int i = 0; i < count; i++) {
+        data[i] = dStage_readBE16(raw + i * 2);
+        if (maxIndex != NULL && data[i] > *maxIndex) {
+            *maxIndex = data[i];
+        }
+    }
+
+    return data;
+}
+
+static dDrawPath_c::line_class* dStage_parseMapPathLines(const u8* base, u32 offset, int count,
+                                                         int* maxIndex) {
+    if (offset == 0 || count <= 0) {
+        return NULL;
+    }
+
+    dDrawPath_c::line_class* lines = dStage_allocArray<dDrawPath_c::line_class>(count);
+    const u8* raw = base + offset;
+    for (int i = 0; i < count; i++, raw += 8) {
+        lines[i].field_0x0 = raw[0];
+        lines[i].field_0x1 = raw[1];
+        lines[i].mDataNum = raw[2];
+        lines[i].field_0x3 = raw[3];
+        lines[i].mpData = dStage_parseMapPathIndexData(base, dStage_readBE32(raw + 4),
+                                                       lines[i].mDataNum, maxIndex);
+    }
+
+    return lines;
+}
+
+static dDrawPath_c::poly_class* dStage_parseMapPathPolys(const u8* base, u32 offset, int count,
+                                                         int* maxIndex) {
+    if (offset == 0 || count <= 0) {
+        return NULL;
+    }
+
+    dDrawPath_c::poly_class* polys = dStage_allocArray<dDrawPath_c::poly_class>(count);
+    const u8* raw = base + offset;
+    for (int i = 0; i < count; i++, raw += 8) {
+        polys[i].field_0x0 = raw[0];
+        polys[i].mDataNum = raw[1];
+        polys[i].mpData = dStage_parseMapPathIndexData(base, dStage_readBE32(raw + 4),
+                                                       polys[i].mDataNum, maxIndex);
+    }
+
+    return polys;
+}
+
+static dDrawPath_c::group_class* dStage_parseMapPathGroups(const u8* base, u32 offset, int count,
+                                                           int* maxIndex) {
+    if (offset == 0 || count <= 0) {
+        return NULL;
+    }
+
+    dDrawPath_c::group_class* groups = dStage_allocArray<dDrawPath_c::group_class>(count);
+    const u8* raw = base + offset;
+    for (int i = 0; i < count; i++, raw += 0x14) {
+        groups[i].mSwbit = raw[0];
+        groups[i].field_0x1 = raw[1];
+        groups[i].mLineNum = raw[2];
+        groups[i].field_0x3 = raw[3];
+        groups[i].mPolyNum = raw[4];
+        memcpy(groups[i].field_0xc, raw + 0x0C, sizeof(groups[i].field_0xc));
+        groups[i].mpLine =
+            dStage_parseMapPathLines(base, dStage_readBE32(raw + 0x08), groups[i].mLineNum, maxIndex);
+        groups[i].mpPoly =
+            dStage_parseMapPathPolys(base, dStage_readBE32(raw + 0x10), groups[i].mPolyNum, maxIndex);
+    }
+
+    return groups;
+}
+
+static dDrawPath_c::floor_class* dStage_parseMapPathFloors(const u8* base, u32 offset, int count,
+                                                           int* maxIndex) {
+    if (offset == 0 || count <= 0) {
+        return NULL;
+    }
+
+    dDrawPath_c::floor_class* floors = dStage_allocArray<dDrawPath_c::floor_class>(count);
+    const u8* raw = base + offset;
+    for (int i = 0; i < count; i++, raw += 8) {
+        floors[i].mFloorNo = (s8)raw[0];
+        floors[i].mGroupNum = raw[1];
+        floors[i].mpGroup =
+            dStage_parseMapPathGroups(base, dStage_readBE32(raw + 4), floors[i].mGroupNum, maxIndex);
+    }
+
+    return floors;
+}
+
+static f32* dStage_parseMapPathFloatData(const u8* base, u32 offset, int maxIndex) {
+    if (offset == 0 || maxIndex < 0) {
+        return NULL;
+    }
+
+    int valueCount = (maxIndex + 1) * 2;
+    f32* data = dStage_allocArray<f32>(valueCount);
+    const u8* raw = base + offset;
+    for (int i = 0; i < valueCount; i++) {
+        u32 word = dStage_readBE32(raw + i * 4);
+        memcpy(&data[i], &word, sizeof(word));
+    }
+
+    return data;
+}
+
+static map_path_class* dStage_getMapPathNode(void* i_data) {
+    map_path_class* wrapper = dStage_allocWrapper<map_path_class>();
+    dStage_nodeHeader* node = (dStage_nodeHeader*)i_data;
+    const u8* roomBase = DZS_PTR(node, u8);
+    dDrawPath_c::room_class* room = dStage_allocArray<dDrawPath_c::room_class>(1);
+
+    wrapper->num = node->m_entryNum;
+    wrapper->m_entries = room;
+
+    if (room != NULL && roomBase != NULL) {
+        int maxIndex = -1;
+        /* Runtime consumers treat MPAT m_entries as the current room's root blob. */
+        room->mFloorNum = roomBase[0];
+        room->mpFloor =
+            dStage_parseMapPathFloors(roomBase, dStage_readBE32(roomBase + 4), room->mFloorNum,
+                                      &maxIndex);
+        room->mpFloatData =
+            dStage_parseMapPathFloatData(roomBase, dStage_readBE32(roomBase + 8), maxIndex);
+    }
+
+    return wrapper;
+}
+
+static dStage_dPath_c* dStage_getPathNode(void* i_data, dStage_dPnt_c* pointInfo) {
+    dStage_dPath_c* wrapper = dStage_allocWrapper<dStage_dPath_c>();
+    dStage_nodeHeader* node = (dStage_nodeHeader*)i_data;
+    wrapper->m_num = node->m_entryNum;
+    wrapper->m_path = DZS_PTR(node, dPath);
+    dStage_swapPathList(wrapper->m_path, wrapper->m_num,
+                        pointInfo != NULL ? pointInfo->m_pnt_offset : 0);
+    return wrapper;
+}
+
+static dStage_dPnt_c* dStage_getPointNode(void* i_data) {
+    dStage_dPnt_c* wrapper = dStage_allocWrapper<dStage_dPnt_c>();
+    dStage_nodeHeader* node = (dStage_nodeHeader*)i_data;
+    dPnt* points = DZS_PTR(node, dPnt);
+    wrapper->num = node->m_entryNum;
+    wrapper->m_pnt_offset = (u32)((uintptr_t)points - (uintptr_t)s_dzs_base);
+
+    if (dStage_markEntriesSwapped(points)) {
+        for (int i = 0; i < wrapper->num; i++) {
+            dStage_swapPointEntry(points[i]);
+        }
+    }
+
+    return wrapper;
+}
+#endif
 
 void dStage_nextStage_c::set(const char* i_stage, s8 i_roomId, s16 i_point, s8 i_layer, s8 i_wipe,
                              u8 i_speed) {
@@ -141,7 +602,11 @@ static int dStage_RoomKeepDoorInit(dStage_dt_c* i_stage, void* i_data, int entry
                                    void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    stage_tgsc_class* tgsc = (stage_tgsc_class*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    stage_tgsc_class* tgsc = dStage_getTgscNode(i_data);
+#else
+    stage_tgsc_class* tgsc = DZS_DATA(i_data, stage_tgsc_class);
+#endif
     dStage_RoomKeepDoorInfoProc(i_stage, tgsc);
     return 1;
 }
@@ -1485,17 +1950,34 @@ void dStage_roomDt_c::init() {
 }
 
 static int dStage_roomInit(int i_roomNo) {
+#ifdef TARGET_PC
+    fprintf(stderr, "[ROOM] dStage_roomInit: roomNo=%d\n", i_roomNo); fflush(stderr);
+#endif
     dComIfGp_roomControl_setStayNo(i_roomNo);
 
     roomRead_class* room = dComIfGp_getStageRoom();
+#ifdef TARGET_PC
+    fprintf(stderr, "[ROOM] room=%p num=%d\n", (void*)room, room ? room->num : -1); fflush(stderr);
+#endif
     if (room != NULL && room->num > i_roomNo) {
         dComIfGp_roomControl_setTimePass(dStage_roomRead_dt_c_GetTimePass(*room->m_entries[i_roomNo]));
 
+#ifdef TARGET_PC
+        fprintf(stderr, "[ROOM] calling loadRoom: count=%d\n", room->m_entries[i_roomNo]->num); fflush(stderr);
+#endif
         return dComIfGp_roomControl_loadRoom(room->m_entries[i_roomNo]->num,
                                              room->m_entries[i_roomNo]->m_rooms, true);
     }
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[ROOM] room data not available — loading stay room directly\n"); fflush(stderr);
+
+    u8 roomLoad = 0x80 | (i_roomNo & 0x3F);
+    dComIfGp_roomControl_setTimePass(0);
+    return dComIfGp_roomControl_loadRoom(1, &roomLoad, true);
+#else
     return 1;
+#endif
 }
 
 static void dummy0() {
@@ -1580,6 +2062,16 @@ static void dStage_actorCreate(stage_actor_data_class* i_actorData, fopAcM_prm_c
         OS_REPORT("\x1B""[43;30mStage Actor Name Nothing !! <%s>\n\x1B[m", i_actorData->name);
         JKRFree(i_actorPrm);
     } else {
+#ifdef TARGET_PC
+        fprintf(stderr,
+                "[ACTOR] create '%.*s' proc=%d arg=%d room=%d pos=(%.2f, %.2f, %.2f) "
+                "angle=(%d, %d, %d) params=0x%08x\n",
+                (int)sizeof(i_actorData->name), i_actorData->name, actorInf->procname,
+                actorInf->argument, i_actorPrm->room_no, i_actorPrm->base.position.x,
+                i_actorPrm->base.position.y, i_actorPrm->base.position.z, i_actorPrm->base.angle.x,
+                i_actorPrm->base.angle.y, i_actorPrm->base.angle.z, i_actorPrm->base.parameters);
+        fflush(stderr);
+#endif
         i_actorPrm->argument = actorInf->argument;
         if (actorInf->procname == fpcNm_SUSPEND_e) {
             fopAc_ac_c* actor = (fopAc_ac_c*)fopAcM_FastCreate(actorInf->procname, NULL, NULL, i_actorPrm);
@@ -1623,10 +2115,34 @@ static void dummy2() {
 
 static int dStage_playerInit(dStage_dt_c* i_stage, void* i_data, int num, void* param_3) {
     UNUSED(param_3);
-    stage_actor_class* player = (stage_actor_class*)((int*)i_data + 1);
+#ifdef TARGET_PC
+    stage_actor_class* player = dStage_getActorNode(i_data);
+#else
+    stage_actor_class* player = DZS_DATA(i_data, stage_actor_class);
+#endif
     stage_actor_data_class* player_data = player->m_entries;
     i_stage->setPlayer(player);
     i_stage->setPlayerNum(num);
+
+#ifdef TARGET_PC
+    fprintf(stderr,
+            "[PLYR] init: room=%d startRoom=%d startPoint=%d num=%d existingPlayer=%p "
+            "entries=%p\n",
+            i_stage->getRoomNo(), dComIfGp_getStartStageRoomNo(), dComIfGp_getStartStagePoint(), num,
+            (void*)dComIfGp_getPlayer(0), (void*)player_data);
+    if (player_data != NULL && num > 0) {
+        for (int i = 0; i < num && i < 4; i++) {
+            fprintf(stderr,
+                    "[PLYR]   entry[%d] name='%.*s' pos=(%.2f, %.2f, %.2f) angleZ=%d "
+                    "params=0x%08x\n",
+                    i, (int)sizeof(player_data[i].name), player_data[i].name,
+                    player_data[i].base.position.x, player_data[i].base.position.y,
+                    player_data[i].base.position.z, player_data[i].base.angle.z,
+                    player_data[i].base.parameters);
+        }
+    }
+    fflush(stderr);
+#endif
 
     if (dComIfGp_getPlayer(0) != NULL || dComIfGp_getStartStageRoomNo() != i_stage->getRoomNo()) {
         return 1;
@@ -1660,6 +2176,10 @@ static int dStage_playerInit(dStage_dt_c* i_stage, void* i_data, int num, void* 
             }
             player_data++;
         }
+#ifdef TARGET_PC
+        fprintf(stderr, "[PLYR] init: selected entry index=%d targetPoint=%d\n", i, unk);
+        fflush(stderr);
+#endif
         if (i == num) {
             OS_REPORT_ERROR("プレイヤーが発見できません。[No.%d]\n切り替えの情報や処理の確認をお願いします。\n", point);
         }
@@ -1684,6 +2204,10 @@ static int dStage_playerInit(dStage_dt_c* i_stage, void* i_data, int num, void* 
     dComIfGp_getStartStage()->set(dComIfGp_getStartStageName(), appen->base.parameters & 0x3F,
                                   dComIfGp_getStartStagePoint(), dComIfGp_getStartStageLayer());
     dStage_actorCreate(player_data, appen);
+#ifdef TARGET_PC
+    fprintf(stderr, "[PLYR] init: create requested, player now=%p\n", (void*)dComIfGp_getPlayer(0));
+    fflush(stderr);
+#endif
 
     base_process_class* stageProc =
         (base_process_class*)fopScnM_SearchByID(dStage_roomControl_c::getProcID());
@@ -1700,7 +2224,11 @@ static int dStage_playerInit(dStage_dt_c* i_stage, void* i_data, int num, void* 
 static int dStage_cameraInit(dStage_dt_c* i_stage, void* i_data, int param_2, void* param_3) {
     UNUSED(param_2);
     UNUSED(param_3);
-    stage_camera_class* camera = (stage_camera_class*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    stage_camera_class* camera = dStage_getCameraNode(i_data);
+#else
+    stage_camera_class* camera = DZS_DATA(i_data, stage_camera_class);
+#endif
     int r30 = 0;
     i_stage->setCamera(camera);
     stage_camera2_data_class* camera2 = &camera->m_entries[r30];
@@ -1711,7 +2239,11 @@ static int dStage_cameraInit(dStage_dt_c* i_stage, void* i_data, int param_2, vo
 static int dStage_RoomCameraInit(dStage_dt_c* i_stage, void* i_data, int param_2, void* param_3) {
     UNUSED(param_2);
     UNUSED(param_3);
-    stage_camera_class* camera = (stage_camera_class*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    stage_camera_class* camera = dStage_getCameraNode(i_data);
+#else
+    stage_camera_class* camera = DZS_DATA(i_data, stage_camera_class);
+#endif
     i_stage->setCamera(camera);
     return 1;
 }
@@ -1719,7 +2251,11 @@ static int dStage_RoomCameraInit(dStage_dt_c* i_stage, void* i_data, int param_2
 static int dStage_arrowInit(dStage_dt_c* i_stage, void* i_data, int param_2, void* param_3) {
     UNUSED(param_2);
     UNUSED(param_3);
-    stage_arrow_class* arrow = (stage_arrow_class*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    stage_arrow_class* arrow = dStage_getArrowNode(i_data);
+#else
+    stage_arrow_class* arrow = DZS_DATA(i_data, stage_arrow_class);
+#endif
     i_stage->setArrow(arrow);
     return 1;
 }
@@ -1777,7 +2313,7 @@ static void dummy4() {
 static int dStage_paletteInfoInit(dStage_dt_c* i_stage, void* i_data, int param_2, void* param_3) {
     UNUSED(param_3);
     dStage_nodeHeader* pal_info = (dStage_nodeHeader*)(i_data);
-    i_stage->setPaletteInfo((stage_palette_info_class*)pal_info->m_offset);
+    i_stage->setPaletteInfo(DZS_PTR(pal_info, stage_palette_info_class));
 #if DEBUG
     i_stage->setPaletteNumInfo(param_2);
 #endif
@@ -1787,7 +2323,7 @@ static int dStage_paletteInfoInit(dStage_dt_c* i_stage, void* i_data, int param_
 static int dStage_pselectInfoInit(dStage_dt_c* i_stage, void* i_data, int param_2, void* param_3) {
     UNUSED(param_3);
     dStage_nodeHeader* psel_info = (dStage_nodeHeader*)(i_data);
-    i_stage->setPselectInfo((stage_pselect_info_class*)psel_info->m_offset);
+    i_stage->setPselectInfo(DZS_PTR(psel_info, stage_pselect_info_class));
 #if DEBUG
     i_stage->setPselectNumInfo(param_2);
 #endif
@@ -1797,7 +2333,7 @@ static int dStage_pselectInfoInit(dStage_dt_c* i_stage, void* i_data, int param_
 static int dStage_envrInfoInit(dStage_dt_c* i_stage, void* i_data, int param_2, void* param_3) {
     UNUSED(param_3);
     dStage_nodeHeader* envr_info = (dStage_nodeHeader*)(i_data);
-    i_stage->setEnvrInfo((stage_envr_info_class*)envr_info->m_offset);
+    i_stage->setEnvrInfo(DZS_PTR(envr_info, stage_envr_info_class));
 #if DEBUG
     i_stage->setEnvrNumInfo(param_2);
 #endif
@@ -1809,8 +2345,7 @@ static int dStage_filiInfo2Init(dStage_dt_c* i_stage, void* i_data, int entryNum
         return 1;
     }
 
-    dStage_FileList2_c* fili_header = (dStage_FileList2_c*)((char*)i_data + 4);
-    dStage_roomControl_c::setFileList2(i_stage->getRoomNo(), fili_header->entries);
+    dStage_roomControl_c::setFileList2(i_stage->getRoomNo(), DZS_DATA(i_data, dStage_FileList2_dt_c));
     return 1;
 }
 
@@ -1821,8 +2356,7 @@ static int dStage_fieldMapFiliInfo2Init(dStage_dt_c* i_stage, void* i_data, int 
     }
 
     dMenu_Fmap_data_c* data = (dMenu_Fmap_data_c*)i_stage;
-    dStage_FileList2_c* fili_header = (dStage_FileList2_c*)((char*)i_data + 4);
-    data->setFileList2(fili_header->entries);
+    data->setFileList2(DZS_DATA(i_data, dStage_FileList2_dt_c));
     return 1;
 }
 
@@ -1831,7 +2365,7 @@ static int dStage_filiInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
     if (entryNum == 0) {
         i_stage->setFileListInfo(NULL);
     } else {
-        i_stage->setFileListInfo((dStage_FileList_dt_c*)fili_info->m_offset);
+        i_stage->setFileListInfo(DZS_PTR(fili_info, dStage_FileList_dt_c));
     }
 
     return 1;
@@ -1840,7 +2374,7 @@ static int dStage_filiInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
 static int dStage_vrboxInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(param_3);
     dStage_nodeHeader* vrbox_info = (dStage_nodeHeader*)(i_data);
-    i_stage->setVrboxInfo((stage_vrbox_info_class*)vrbox_info->m_offset);
+    i_stage->setVrboxInfo(DZS_PTR(vrbox_info, stage_vrbox_info_class));
 #if DEBUG
     i_stage->setVrboxNumInfo(entryNum);
 #endif
@@ -1851,7 +2385,7 @@ static int dStage_vrboxcolInfoInit(dStage_dt_c* i_stage, void* i_data, int entry
                                    void* param_3) {
     UNUSED(param_3);
     dStage_nodeHeader* vrcol_info = (dStage_nodeHeader*)(i_data);
-    i_stage->setVrboxcolInfo((stage_vrboxcol_info_class*)vrcol_info->m_offset);
+    i_stage->setVrboxcolInfo(DZS_PTR(vrcol_info, stage_vrboxcol_info_class));
 #if DEBUG
     i_stage->setVrboxcolNumInfo(entryNum);
 #endif
@@ -1860,7 +2394,7 @@ static int dStage_vrboxcolInfoInit(dStage_dt_c* i_stage, void* i_data, int entry
 
 static int dStage_plightInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     dStage_nodeHeader* plight_info = (dStage_nodeHeader*)(i_data);
-    i_stage->setPlightInfo((stage_plight_info_class*)plight_info->m_offset);
+    i_stage->setPlightInfo(DZS_PTR(plight_info, stage_plight_info_class));
     i_stage->setPlightNumInfo(entryNum);
     return 1;
 }
@@ -1872,7 +2406,7 @@ static int dStage_lgtvInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
         i_stage->setLightVecInfo(NULL);
     } else {
         dStage_nodeHeader* lgtv_info = (dStage_nodeHeader*)(i_data);
-        i_stage->setLightVecInfo((stage_pure_lightvec_info_class*)lgtv_info->m_offset);
+        i_stage->setLightVecInfo(DZS_PTR(lgtv_info, stage_pure_lightvec_info_class));
     }
 
     return 1;
@@ -1890,7 +2424,26 @@ static int dStage_stagInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
     UNUSED(entryNum);
     UNUSED(param_3);
     dStage_nodeHeader* stag_info = (dStage_nodeHeader*)(i_data);
-    i_stage->setStagInfo((stage_stag_info_class*)stag_info->m_offset);
+    stage_stag_info_class* info = DZS_PTR(stag_info, stage_stag_info_class);
+#ifdef TARGET_PC
+    if (info != NULL) {
+        /* Byte-swap STAG fields from big-endian */
+        u32 tmp;
+        tmp = pc_bswap32(*(u32*)&info->mNear); *(u32*)&info->mNear = tmp;
+        tmp = pc_bswap32(*(u32*)&info->mFar); *(u32*)&info->mFar = tmp;
+        info->field_0x0a = pc_bswap16(info->field_0x0a);
+        info->field_0x0c = pc_bswap32(info->field_0x0c);
+        info->field_0x10 = pc_bswap32(info->field_0x10);
+        info->mGapLevel = (s16)pc_bswap16((u16)info->mGapLevel);
+        info->mRangeUp = (s16)pc_bswap16((u16)info->mRangeUp);
+        info->mRangeDown = (s16)pc_bswap16((u16)info->mRangeDown);
+        tmp = pc_bswap32(*(u32*)&info->field_0x20); *(u32*)&info->field_0x20 = tmp;
+        tmp = pc_bswap32(*(u32*)&info->field_0x24); *(u32*)&info->field_0x24 = tmp;
+        info->mStageTitleNo = pc_bswap16(info->mStageTitleNo);
+        fprintf(stderr, "[STAG] near=%.1f far=%.1f camType=%d\n", info->mNear, info->mFar, info->mCameraType);
+    }
+#endif
+    i_stage->setStagInfo(info);
 
     if (!dStage_isBossStage(i_stage)) {
         dComIfG_deleteStageRes("Xtg_00");
@@ -1918,7 +2471,11 @@ static int dStage_stagInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
 }
 
 static int dStage_sclsInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
-    i_stage->setSclsInfo((stage_scls_info_dummy_class*)((char*)i_data + 4));
+#ifdef TARGET_PC
+    i_stage->setSclsInfo(dStage_getSclsNode(i_data));
+#else
+    i_stage->setSclsInfo(DZS_DATA(i_data, stage_scls_info_dummy_class));
+#endif
     return 1;
 }
 
@@ -1926,7 +2483,11 @@ static int dStage_actorCommonLayerInit(dStage_dt_c* i_stage, void* i_data, int e
                                        void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    stage_actor_class* actor = (stage_actor_class*)((int*)i_data + 1);
+#ifdef TARGET_PC
+    stage_actor_class* actor = dStage_getActorNode(i_data);
+#else
+    stage_actor_class* actor = DZS_DATA(i_data, stage_actor_class);
+#endif
     stage_actor_data_class* actor_data = actor->m_entries;
 
     for (int i = 0; i < actor->num; i++) {
@@ -1951,7 +2512,11 @@ static int dStage_tgscCommonLayerInit(dStage_dt_c* i_stage, void* i_data, int en
                                       void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    stage_tgsc_class* actor = (stage_tgsc_class*)((int*)i_data + 1);
+#ifdef TARGET_PC
+    stage_tgsc_class* actor = dStage_getTgscNode(i_data);
+#else
+    stage_tgsc_class* actor = DZS_DATA(i_data, stage_tgsc_class);
+#endif
     stage_tgsc_data_class* tgsc_data = actor->m_entries;
 
     for (int i = 0; i < actor->num; i++) {
@@ -1975,7 +2540,11 @@ static int dStage_tgscCommonLayerInit(dStage_dt_c* i_stage, void* i_data, int en
 static int dStage_actorInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    stage_actor_class* actor = (stage_actor_class*)((int*)i_data + 1);
+#ifdef TARGET_PC
+    stage_actor_class* actor = dStage_getActorNode(i_data);
+#else
+    stage_actor_class* actor = DZS_DATA(i_data, stage_actor_class);
+#endif
     stage_actor_data_class* actor_data = actor->m_entries;
 
     for (int i = 0; i < actor->num; i++) {
@@ -2000,7 +2569,11 @@ static int dStage_actorInit_always(dStage_dt_c* i_stage, void* i_data, int entry
                                    void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    stage_actor_class* actor = (stage_actor_class*)((int*)i_data + 1);
+#ifdef TARGET_PC
+    stage_actor_class* actor = dStage_getActorNode(i_data);
+#else
+    stage_actor_class* actor = DZS_DATA(i_data, stage_actor_class);
+#endif
     stage_actor_data_class* actor_data = actor->m_entries;
 
     for (int i = 0; i < actor->num; i++) {
@@ -2022,7 +2595,11 @@ static int dStage_actorInit_always(dStage_dt_c* i_stage, void* i_data, int entry
 static int dStage_tgscInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    stage_tgsc_class* actor = (stage_tgsc_class*)((int*)i_data + 1);
+#ifdef TARGET_PC
+    stage_tgsc_class* actor = dStage_getTgscNode(i_data);
+#else
+    stage_tgsc_class* actor = DZS_DATA(i_data, stage_tgsc_class);
+#endif
     stage_tgsc_data_class* tgsc_data = actor->m_entries;
 
     for (int i = 0; i < actor->num; i++) {
@@ -2046,7 +2623,11 @@ static int dStage_tgscInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
 static int dStage_doorInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    stage_tgsc_class* actor = (stage_tgsc_class*)((int*)i_data + 1);
+#ifdef TARGET_PC
+    stage_tgsc_class* actor = dStage_getTgscNode(i_data);
+#else
+    stage_tgsc_class* actor = DZS_DATA(i_data, stage_tgsc_class);
+#endif
     stage_tgsc_data_class* tgsc_data = actor->m_entries;
 
     for (int i = 0; i < actor->num; i++) {
@@ -2067,7 +2648,52 @@ static int dStage_doorInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
 
 static int dStage_roomReadInit(dStage_dt_c* i_stage, void* i_data, int param_2, void* param_3) {
     UNUSED(param_2);
-    roomRead_class* p_node = (roomRead_class*)((int*)i_data + 1);
+#ifdef TARGET_PC
+    /* On 64-bit, roomRead_class has pointer members that don't match the
+     * 4-byte layout in the DZS binary. Parse the raw BE data manually
+     * and build a proper struct on the heap. */
+    /* On GC, DZS_DATA overlays roomRead_class on the node header:
+     *   p_node->num = node->m_entryNum
+     *   p_node->m_entries = node->m_offset (as raw ptr/offset, gets fixed up)
+     * On PC, we replicate this: use param_2 as num, DZS_PTR as entries base.
+     * The entries are 4-byte GC pointers at the data offset, each pointing
+     * to a roomRead_data_class (which has a u8* m_rooms pointer = 4 bytes on GC). */
+    u8* entriesData = (u8*)DZS_PTR(((dStage_nodeHeader*)i_data), u8);
+    int numEntries = param_2;
+
+    static roomRead_class s_roomRead;
+    static roomRead_data_class* s_roomEntries[64];
+    static roomRead_data_class s_roomData[64];
+    s_roomRead.num = numEntries;
+    s_roomRead.m_entries = s_roomEntries;
+
+    fprintf(stderr, "[ROOM] roomReadInit: numEntries=%d data=%p base=%p\n",
+            numEntries, (void*)entriesData, param_3);
+    fflush(stderr);
+
+    /* entriesData points to an array of 4-byte GC offsets to roomRead_data_class entries */
+    for (int i = 0; i < numEntries && i < 64; i++) {
+        /* Read 4-byte BE offset */
+        u8* offRaw = entriesData + i * 4;
+        u32 entryOff = (offRaw[0]<<24)|(offRaw[1]<<16)|(offRaw[2]<<8)|offRaw[3];
+        /* The entry is at base + offset */
+        u8* entryPtr = (u8*)param_3 + entryOff;
+        s_roomData[i].num = entryPtr[0];
+        s_roomData[i].field_0x1 = entryPtr[1];
+        s_roomData[i].field_0x2 = entryPtr[2];
+        /* m_rooms is at offset 4 within the entry (4-byte BE offset on GC) */
+        u32 roomsOff = (entryPtr[4]<<24)|(entryPtr[5]<<16)|(entryPtr[6]<<8)|entryPtr[7];
+        s_roomData[i].m_rooms = (u8*)param_3 + roomsOff;
+        s_roomEntries[i] = &s_roomData[i];
+        fprintf(stderr, "[ROOM]   entry[%d]: num=%d f1=%d f2=%d rooms=%p(off=0x%x)\n",
+                i, s_roomData[i].num, s_roomData[i].field_0x1, s_roomData[i].field_0x2,
+                (void*)s_roomData[i].m_rooms, roomsOff);
+    }
+
+    i_stage->setRoom(&s_roomRead);
+    return 1;
+#else
+    roomRead_class* p_node = DZS_DATA(i_data, roomRead_class);
     roomRead_data_class** rtbl = p_node->m_entries;
 
     i_stage->setRoom(p_node);
@@ -2080,21 +2706,44 @@ static int dStage_roomReadInit(dStage_dt_c* i_stage, void* i_data, int param_2, 
     }
 
     return 1;
+#endif
 }
 
 s8 dStage_roomRead_dt_c_GetReverbStage(roomRead_class& room, int index) {
+    if (room.num <= 0 || room.m_entries == NULL) {
+#ifdef TARGET_PC
+        fprintf(stderr,
+                "[ROOM] GetReverbStage: missing room table (room=%p num=%d entries=%p) -> default 0\n",
+                (void*)&room, room.num, (void*)room.m_entries);
+        fflush(stderr);
+#endif
+        return 0;
+    }
+
     if (index < 0 || index >= room.num) {
         index = 0;
     }
 
     roomRead_data_class* data = room.m_entries[index];
+    if (data == NULL) {
+#ifdef TARGET_PC
+        fprintf(stderr, "[ROOM] GetReverbStage: null room entry index=%d num=%d -> default 0\n",
+                index, room.num);
+        fflush(stderr);
+#endif
+        return 0;
+    }
     return dStage_roomRead_dt_c_GetReverb(*data);
 }
 
 static int dStage_ppntInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    dStage_dPnt_c* pnt = (dStage_dPnt_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    i_stage->setPntInfo(dStage_getPointNode(i_data));
+    return 1;
+#endif
+    dStage_dPnt_c* pnt = DZS_DATA(i_data, dStage_dPnt_c);
     i_stage->setPntInfo(pnt);
     return 1;
 }
@@ -2102,7 +2751,11 @@ static int dStage_ppntInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
 static int dStage_pathInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    dStage_dPath_c* path_c = (dStage_dPath_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    i_stage->setPathInfo(dStage_getPathNode(i_data, i_stage->getPntInf()));
+    return 1;
+#endif
+    dStage_dPath_c* path_c = DZS_DATA(i_data, dStage_dPath_c);
     dPath* path = path_c->m_path;
 
     i_stage->setPathInfo(path_c);
@@ -2120,7 +2773,11 @@ static int dStage_pathInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
 static int dStage_rppnInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    dStage_dPnt_c* pnt = (dStage_dPnt_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    i_stage->setPnt2Info(dStage_getPointNode(i_data));
+    return 1;
+#endif
+    dStage_dPnt_c* pnt = DZS_DATA(i_data, dStage_dPnt_c);
     i_stage->setPnt2Info(pnt);
     return 1;
 }
@@ -2128,7 +2785,11 @@ static int dStage_rppnInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
 static int dStage_rpatInfoInit(dStage_dt_c* i_stage, void* i_data, int i_num, void* param_3) {
     UNUSED(i_num);
     UNUSED(param_3);
-    dStage_dPath_c* pStagePath = (dStage_dPath_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    i_stage->setPath2Info(dStage_getPathNode(i_data, i_stage->getPnt2Inf()));
+    return 1;
+#endif
+    dStage_dPath_c* pStagePath = DZS_DATA(i_data, dStage_dPath_c);
     dPath* pPath = pStagePath->m_path;
 
     i_stage->setPath2Info(pStagePath);
@@ -2144,7 +2805,11 @@ static int dStage_rpatInfoInit(dStage_dt_c* i_stage, void* i_data, int i_num, vo
 static int dStage_soundInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    dStage_SoundInfo_c* soundInfo = (dStage_SoundInfo_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dStage_SoundInfo_c* soundInfo = dStage_getSoundNode(i_data);
+#else
+    dStage_SoundInfo_c* soundInfo = DZS_DATA(i_data, dStage_SoundInfo_c);
+#endif
     i_stage->setSoundInf(soundInfo);
     return 1;
 }
@@ -2152,7 +2817,11 @@ static int dStage_soundInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum
 static int dStage_soundInfoInitCL(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    dStage_SoundInfo_c* soundInfo = (dStage_SoundInfo_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dStage_SoundInfo_c* soundInfo = dStage_getSoundNode(i_data);
+#else
+    dStage_SoundInfo_c* soundInfo = DZS_DATA(i_data, dStage_SoundInfo_c);
+#endif
     i_stage->setSoundInfCL(soundInfo);
     return 1;
 }
@@ -2171,16 +2840,34 @@ static void dStage_dt_c_decode(void* i_data, dStage_dt_c* i_stage, FuncTable* fu
                                int tblSize) {
     if (i_data != NULL) {
         dStage_fileHeader* file = (dStage_fileHeader*)i_data;
-        dStage_nodeHeader* node1 = file->m_nodes;
+#ifdef TARGET_PC
+        dStage_nodeHeader* nodeBase = s_dzs_nodes;
+        int nodeCount = s_dzs_node_count;
+#else
+        dStage_nodeHeader* nodeBase = file->m_nodes;
+        int nodeCount = file->m_chunkCount;
+#endif
+#ifdef TARGET_PC
+        static int s_dec_log = 0;
+        if (s_dec_log++ < 20)
+            fprintf(stderr, "[DZS] decode: nodeBase=%p nodeCount=%d tblSize=%d\n",
+                    (void*)nodeBase, nodeCount, tblSize);
+#endif
+        dStage_nodeHeader* node1 = nodeBase;
         for (int i = 0; i < tblSize; i++) {
-            node1 = file->m_nodes;
+            node1 = nodeBase;
 
             FuncTable* nodeFunc = funcTbl + i;
 
-            for (int j = 0; j < file->m_chunkCount; j++) {
+            for (int j = 0; j < nodeCount; j++) {
                 dStage_nodeHeader* node2 = node1;
                 if ((int)node2->m_tag == *(int*)nodeFunc->identifier) {
                     if (funcTbl[i].function != NULL) {
+#ifdef TARGET_PC
+                        fprintf(stderr, "[DZS] decode: calling %.4s handler (entryNum=%d offset=%p)\n",
+                                nodeFunc->identifier, node1->m_entryNum, (void*)node1->m_offset);
+                        fflush(stderr);
+#endif
                         funcTbl[i].function(i_stage, node1, node1->m_entryNum, i_data);
                     }
                     break;
@@ -2196,7 +2883,11 @@ static void dStage_dt_c_decode(void* i_data, dStage_dt_c* i_stage, FuncTable* fu
 static int dStage_stEventInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    dStage_MapEventInfo_c* mapEvent = (dStage_MapEventInfo_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dStage_MapEventInfo_c* mapEvent = dStage_getMapEventNode(i_data);
+#else
+    dStage_MapEventInfo_c* mapEvent = DZS_DATA(i_data, dStage_MapEventInfo_c);
+#endif
     i_stage->setMapEventInfo(mapEvent);
     OS_REPORT("\nステージイベントデータ初期化！！ %d %x\n\n", mapEvent->num, mapEvent->m_entries);
     return 1;
@@ -2204,7 +2895,11 @@ static int dStage_stEventInfoInit(dStage_dt_c* i_stage, void* i_data, int entryN
 
 static int dStage_mapEventInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
                                    void* param_3) {
-    dStage_MapEventInfo_c* mapEvent = (dStage_MapEventInfo_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dStage_MapEventInfo_c* mapEvent = dStage_getMapEventNode(i_data);
+#else
+    dStage_MapEventInfo_c* mapEvent = DZS_DATA(i_data, dStage_MapEventInfo_c);
+#endif
     i_stage->setMapEventInfo(mapEvent);
     return 1;
 }
@@ -2212,7 +2907,11 @@ static int dStage_mapEventInfoInit(dStage_dt_c* i_stage, void* i_data, int entry
 static int dStage_floorInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    dStage_FloorInfo_c* floorInfo = (dStage_FloorInfo_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dStage_FloorInfo_c* floorInfo = dStage_getFloorNode(i_data);
+#else
+    dStage_FloorInfo_c* floorInfo = DZS_DATA(i_data, dStage_FloorInfo_c);
+#endif
     i_stage->setFloorInfo(floorInfo);
     return 1;
 }
@@ -2220,7 +2919,11 @@ static int dStage_floorInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum
 static int dStage_memaInfoInit(dStage_dt_c* i_stage, void* i_data, int param_2, void* param_3) {
     UNUSED(param_2);
     UNUSED(param_3);
-    dStage_MemoryMap_c* pd = (dStage_MemoryMap_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dStage_MemoryMap_c* pd = dStage_getMemoryMapNode(i_data);
+#else
+    dStage_MemoryMap_c* pd = DZS_DATA(i_data, dStage_MemoryMap_c);
+#endif
 #if DEBUG
     if (fapGmHIO_getMemoryBlockOff()) {
         pd = NULL;
@@ -2247,7 +2950,11 @@ static int dStage_memaInfoInit(dStage_dt_c* i_stage, void* i_data, int param_2, 
 static int dStage_mecoInfoInit(dStage_dt_c* i_stage, void* i_data, int param_2, void* param_3) {
     UNUSED(param_2);
     UNUSED(param_3);
-    dStage_MemoryConfig_c* pd = (dStage_MemoryConfig_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dStage_MemoryConfig_c* pd = dStage_getMemoryConfigNode(i_data);
+#else
+    dStage_MemoryConfig_c* pd = DZS_DATA(i_data, dStage_MemoryConfig_c);
+#endif
 #if DEBUG
     if (fapGmHIO_getMemoryBlockOff()) {
         pd = NULL;
@@ -2269,7 +2976,11 @@ static int dStage_mecoInfoInit(dStage_dt_c* i_stage, void* i_data, int param_2, 
 
 static int dStage_stageKeepTresureInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
                                        void* param_3) {
-    dTres_c::list_class* tresure_p = (dTres_c::list_class*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dTres_c::list_class* tresure_p = dStage_getTresureListNode(i_data);
+#else
+    dTres_c::list_class* tresure_p = DZS_DATA(i_data, dTres_c::list_class);
+#endif
     dTres_c::addData(tresure_p, i_stage->getRoomNo());
     return 1;
 }
@@ -2277,14 +2988,53 @@ static int dStage_stageKeepTresureInit(dStage_dt_c* i_stage, void* i_data, int e
 static int dStage_fieldMapTresureInit(dStage_dt_c* i_stage, void* i_data, int i_entryNum,
                                       void* param_3) {
     dMenu_Fmap_data_c* data = (dMenu_Fmap_data_c*)i_stage;
-    data->setTresure((dTres_c::list_class*)((char*)i_data + 4));
+#ifdef TARGET_PC
+    data->setTresure(dStage_getTresureListNode(i_data));
+#else
+    data->setTresure(DZS_DATA(i_data, dTres_c::list_class));
+#endif
     return 1;
 }
+
+
+#ifdef TARGET_PC
+#endif
 
 static void dStage_dt_c_offsetToPtr(void* i_data) {
 #ifdef TARGET_PC
     if (i_data == NULL) return;
-#endif
+    s_dzs_base = i_data;
+
+    /* Raw DZS binary layout (big-endian):
+     *   offset 0: s32 chunkCount
+     *   offset 4: array of {u32 tag, s32 entryNum, u32 offset} (12 bytes each)
+     * Parse into heap-allocated dStage_nodeHeader array with proper pointer sizes. */
+    u8* raw = (u8*)i_data;
+    int chunkCount = (int)pc_bswap32(*(u32*)raw);
+
+    /* Allocate node array with 64-bit m_offset (stored globally, NOT in file header) */
+    if (s_dzs_nodes) delete[] s_dzs_nodes;
+    dStage_nodeHeader* nodes = new dStage_nodeHeader[chunkCount];
+    s_dzs_nodes = nodes;
+    s_dzs_node_count = chunkCount;
+
+    u8* src = raw + 4; /* raw nodes start at offset 4 */
+    for (int i = 0; i < chunkCount; i++) {
+        /* Read raw 12-byte node */
+        nodes[i].m_tag = *(u32*)src;         /* NOT swapped — raw byte compare */
+        nodes[i].m_entryNum = (int)pc_bswap32(*(u32*)(src + 4));
+        u32 offset = pc_bswap32(*(u32*)(src + 8));
+
+        /* Resolve offset to full 64-bit pointer */
+        if (offset != 0 && offset < 0x80000000) {
+            nodes[i].m_offset = (uintptr_t)i_data + offset;
+        } else {
+            nodes[i].m_offset = 0;
+        }
+
+        src += 12; /* next raw node */
+    }
+#else
     dStage_fileHeader* file = (dStage_fileHeader*)i_data;
     dStage_nodeHeader* p_tno = file->m_nodes;
 
@@ -2295,24 +3045,43 @@ static void dStage_dt_c_offsetToPtr(void* i_data) {
         }
         p_tno++;
     }
+#endif
 }
 
 static int dStage_mapPathInit(dStage_dt_c* i_stage, void* i_data, int param_2, void* param_3) {
-    dStage_nodeHeader* map_path = (dStage_nodeHeader*)((int*)i_data + 1);
+    UNUSED(param_2);
+    UNUSED(param_3);
+#ifdef TARGET_PC
+    map_path_class* map_path = dStage_getMapPathNode(i_data);
+#else
+    dStage_nodeHeader* map_path = DZS_DATA(i_data, dStage_nodeHeader);
+#endif
     dMpath_c::setPointer(i_stage->getRoomNo(), map_path, 0);
     return 1;
 }
 
 static int dStage_mapPathInitCommonLayer(dStage_dt_c* i_stage, void* i_data, int param_2,
                                          void* param_3) {
-    map_path_class* map_path = (map_path_class*)((int*)i_data + 1);
+    UNUSED(param_2);
+    UNUSED(param_3);
+#ifdef TARGET_PC
+    map_path_class* map_path = dStage_getMapPathNode(i_data);
+#else
+    map_path_class* map_path = DZS_DATA(i_data, map_path_class);
+#endif
     dMpath_c::setPointer(i_stage->getRoomNo(), map_path, 1);
     return 1;
 }
 
 static int dStage_fieldMapMapPathInit(dStage_dt_c* i_stage, void* i_data, int param_2,
                                          void* param_3) {
-    map_path_class* map_path = (map_path_class*)((int*)i_data + 1);
+    UNUSED(param_2);
+    UNUSED(param_3);
+#ifdef TARGET_PC
+    map_path_class* map_path = dStage_getMapPathNode(i_data);
+#else
+    map_path_class* map_path = DZS_DATA(i_data, map_path_class);
+#endif
     dDrawPath_c::room_class* room_p = (dDrawPath_c::room_class*)map_path->m_entries;
     if (room_p == NULL) {
         return 1;
@@ -2382,7 +3151,11 @@ static void readMult(dStage_dt_c* i_stage, dStage_Multi_c* multi, bool useOldRes
 static int dStage_multInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    dStage_Multi_c* multi = (dStage_Multi_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dStage_Multi_c* multi = dStage_getMultiNode(i_data);
+#else
+    dStage_Multi_c* multi = DZS_DATA(i_data, dStage_Multi_c);
+#endif
     i_stage->setMulti(multi);
     dStage_initRoomKeepDoorInfo();
 
@@ -2396,13 +3169,21 @@ static int dStage_multInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
 static int dStage_lbnkInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    dStage_Lbnk_c* lbnk = (dStage_Lbnk_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dStage_Lbnk_c* lbnk = dStage_getLbnkNode(i_data);
+#else
+    dStage_Lbnk_c* lbnk = DZS_DATA(i_data, dStage_Lbnk_c);
+#endif
     i_stage->setLbnk(lbnk);
     return 1;
 }
 
 static int dStage_roomTresureInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
-    stage_tresure_class* tresure_p = (stage_tresure_class*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    stage_tresure_class* tresure_p = dStage_getStageTresureNode(i_data);
+#else
+    stage_tresure_class* tresure_p = DZS_DATA(i_data, stage_tresure_class);
+#endif
     i_stage->setTresure(tresure_p);
     dStage_actorInit(i_stage, i_data, entryNum, param_3);
     return 1;
@@ -2417,14 +3198,22 @@ static int dStage_layerTresureInit(dStage_dt_c* i_stage, void* i_data, int entry
 static int dStage_dmapInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum, void* param_3) {
     UNUSED(entryNum);
     UNUSED(param_3);
-    dStage_DMap_c* dmap = (dStage_DMap_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dStage_DMap_c* dmap = dStage_getDMapNode(i_data);
+#else
+    dStage_DMap_c* dmap = DZS_DATA(i_data, dStage_DMap_c);
+#endif
     i_stage->setDMap(dmap);
     return 1;
 }
 
 static int dStage_stageDrtgInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
                                     void* param_3) {
-    stage_tgsc_class* tgsc = (stage_tgsc_class*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    stage_tgsc_class* tgsc = dStage_getTgscNode(i_data);
+#else
+    stage_tgsc_class* tgsc = DZS_DATA(i_data, stage_tgsc_class);
+#endif
     i_stage->setDrTg(tgsc);
     dStage_tgscInfoInit(i_stage, i_data, entryNum, param_3);
     dStage_KeepDoorInfoProc(i_stage, tgsc);
@@ -2433,7 +3222,11 @@ static int dStage_stageDrtgInfoInit(dStage_dt_c* i_stage, void* i_data, int entr
 
 static int dStage_roomDrtgInfoInit(dStage_dt_c* i_stage, void* i_data, int entryNum,
                                    void* param_3) {
-    stage_tgsc_class* tgsc = (stage_tgsc_class*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    stage_tgsc_class* tgsc = dStage_getTgscNode(i_data);
+#else
+    stage_tgsc_class* tgsc = DZS_DATA(i_data, stage_tgsc_class);
+#endif
     i_stage->setDrTg(tgsc);
     dStage_doorInfoInit(i_stage, i_data, entryNum, param_3);
     return 1;
@@ -2441,7 +3234,7 @@ static int dStage_roomDrtgInfoInit(dStage_dt_c* i_stage, void* i_data, int entry
 
 #if DEBUG
 static int dStage_unitInit(dStage_dt_c* i_stage, void* i_data, int, void*) {
-    void* unit = (void*)((char*)i_data + 4);
+    void* unit = (void*)DZS_DATA(i_data, void);
     dBgp_c::setPointer(unit);
     i_stage->setUnit(unit);
     return 1;
@@ -2450,7 +3243,11 @@ static int dStage_unitInit(dStage_dt_c* i_stage, void* i_data, int, void*) {
 
 static int dStage_elstInfoInit(dStage_dt_c* i_stage, void* i_data, int param_2, void* param_3) {
     UNUSED(param_3);
-    dStage_Elst_c* elst = (dStage_Elst_c*)((char*)i_data + 4);
+#ifdef TARGET_PC
+    dStage_Elst_c* elst = dStage_getElstNode(i_data);
+#else
+    dStage_Elst_c* elst = DZS_DATA(i_data, dStage_Elst_c);
+#endif
 
     if (param_2 == 0) {
         i_stage->setElst(NULL);
@@ -2624,8 +3421,17 @@ void dStage_dt_c_stageLoader(void* i_data, dStage_dt_c* i_stage) {
         {"REVT", dStage_stEventInfoInit},   {"SOND", dStage_soundInfoInitCL},
     };
 
+#ifdef TARGET_PC
+    dStage_dt_c_offsetToPtr(i_data);
+#endif
     dStage_dt_c_decode(i_data, i_stage, l_funcTable, ARRAY_SIZEU(l_funcTable));
+#ifdef TARGET_PC
+    dStage_dt_c_offsetToPtr(i_data);
+#endif
     layerTableLoader(i_data, i_stage, -1);
+#ifdef TARGET_PC
+    dStage_dt_c_offsetToPtr(i_data);
+#endif
     layerActorLoader(i_data, i_stage, -1);
 }
 
@@ -2689,6 +3495,9 @@ char dStage_roomControl_c::mArcBank[32][10] = {0};
 
 void dStage_infoCreate() {
     OS_REPORT("dStage_Create\n");
+#ifdef TARGET_PC
+    dStage_clearPcDecodeState();
+#endif
     void* stageRsrc = dComIfG_getStageRes("stage.dzs");
     JUT_ASSERT(4451, stageRsrc != NULL);
 
@@ -2699,7 +3508,13 @@ void dStage_infoCreate() {
 char dStage_roomControl_c::mDemoArcName[10];
 
 void dStage_Create() {
+#ifdef TARGET_PC
+    fprintf(stderr, "[DZS] dStage_Create: starting...\n"); fflush(stderr);
+#endif
     void* stageRsrc = dComIfG_getStageRes("stage.dzs");
+#ifdef TARGET_PC
+    fprintf(stderr, "[DZS] dStage_Create: stageRsrc=%p\n", stageRsrc); fflush(stderr);
+#endif
     JUT_ASSERT(4451, stageRsrc != NULL);
 #if DEBUG
     data_8074C568_debug = false;
@@ -2709,8 +3524,14 @@ void dStage_Create() {
     data_8074C56C_debug = false;
 #endif
     dStage_dt_c_stageLoader(stageRsrc, dComIfGp_getStage());
+#ifdef TARGET_PC
+    fprintf(stderr, "[DZS] dStage_Create: stageLoader done, daSus...\n"); fflush(stderr);
+#endif
     daSus_c::execute();
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[DZS] dStage_Create: roomInit...\n"); fflush(stderr);
+#endif
     if (dComIfGp_getStartStageRoomNo() >= 0) {
         int status = dStage_roomInit(dComIfGp_getStartStageRoomNo());
         JUT_ASSERT(4517, status);
@@ -2719,6 +3540,9 @@ void dStage_Create() {
     *dStage_roomControl_c::getDemoArcName() = 0;
     dKankyo_create();
 
+#ifdef TARGET_PC
+    fprintf(stderr, "[DZS] dStage_Create: vrbox check...\n"); fflush(stderr);
+#endif
     if (dComIfG_getStageRes("vrbox_sora.bmd")) {
         fopAcM_Create(fpcNm_VRBOX_e, NULL, NULL);
         fopAcM_Create(fpcNm_VRBOX2_e, NULL, NULL);
@@ -2762,6 +3586,9 @@ void dStage_Delete() {
     dComIfG_deleteObjectResMain(cam_filename);
     dComIfGp_evmng_remove();
     dComIfGp_getStage()->init();
+#ifdef TARGET_PC
+    dStage_clearPcDecodeState();
+#endif
 }
 
 s8 dStage_roomControl_c::mRoomReadId = -1;

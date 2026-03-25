@@ -38,15 +38,27 @@ void dEyeHL_c::remove() {
 dEyeHL_c* dEyeHL_mng_c::m_obj;
 
 void dEyeHL_mng_c::update() {
+#ifdef TARGET_PC
+    /* PC port: eye-highlight list ownership is still unstable across scene
+     * transitions; skip this optional LOD-bias adjustment path for now. */
+    return;
+#endif
     dEyeHL_c* obj = m_obj;
+    int guard = 0;
 
     if (g_envHIO.mOther.mAdjustLODBias == 0 || !dComIfGp_event_runCheck()) {
-        for (; obj != NULL; obj = obj->m_next) {
+        for (; obj != NULL && guard++ < 512; obj = obj->m_next) {
+            if (obj->m_timg == NULL) {
+                continue;
+            }
             obj->m_timg->LODBias = obj->m_lodBias;
         }
     } else {
         s16 tmp = 2.0f * (dComIfGd_getView()->fovy - 45.0f);
-        for (; obj != NULL; obj = obj->m_next) {
+        for (; obj != NULL && guard++ < 512; obj = obj->m_next) {
+            if (obj->m_timg == NULL) {
+                continue;
+            }
             ResTIMG* timg = obj->m_timg;
             timg->LODBias = obj->m_lodBias + tmp;
             timg->LODBias = cLib_minMaxLimit<s16>((s16)timg->LODBias, -400, 399);
@@ -55,9 +67,19 @@ void dEyeHL_mng_c::update() {
 }
 
 void dEyeHL_mng_c::entry(dEyeHL_c* i_obj) {
+    if (i_obj == NULL) {
+        return;
+    }
+    if (i_obj->m_timg == NULL) {
+        return;
+    }
+    /* Re-link safely if this object was already in the list. */
+    remove(i_obj);
+
     if (m_obj != NULL) {
         m_obj->m_pre = i_obj;
     }
+    i_obj->m_pre = NULL;
     i_obj->m_next = m_obj;
     m_obj = i_obj;
 }

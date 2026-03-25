@@ -5,6 +5,7 @@
 
 #include "m_Do/m_Do_main.h"
 #ifdef TARGET_PC
+#include <cstdlib>
 #ifdef __APPLE__
 #include <mach/mach_time.h>
 #endif
@@ -999,6 +1000,14 @@ void main(int argc, const char* argv[]) {
         mDoRst::setWarningDispFlag(0);
         mDoRst::offShutdown();
         mDoRst::offReturnToMenu();
+#ifdef TARGET_PC
+        if (const char* skip_warning = std::getenv("TP_SKIP_WARNING")) {
+            if (skip_warning[0] == '1') {
+                fprintf(stderr, "[PC] TP_SKIP_WARNING=1: presetting warning flag\n");
+                mDoRst::setWarningDispFlag(1);
+            }
+        }
+#endif
     }
 
     #if PLATFORM_WII || PLATFORM_SHIELD

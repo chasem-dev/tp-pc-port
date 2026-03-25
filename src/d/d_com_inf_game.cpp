@@ -1220,6 +1220,11 @@ int dComIfG_changeOpeningScene(scene_class* i_scene, s16 i_procName) {
     }
 
     fopScnM_ChangeReq(i_scene, i_procName, 0, 30);
+#ifdef TARGET_PC
+    /* On PC, ReRequest can leave OPENING_SCENE paused (pause_flag=3),
+     * which prevents bridge/title rendering. */
+    return 1;
+#endif
     fopScnM_ReRequest(i_procName, 0);
 
     return 1;

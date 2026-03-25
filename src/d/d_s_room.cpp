@@ -197,16 +197,32 @@ static bool objectSetCheck(room_of_scene_class* i_this) {
     BOOL status_flag_8 = dComIfGp_roomControl_checkStatusFlag(roomNo, 8);
     BOOL status_flag_20 = dComIfGp_roomControl_checkStatusFlag(roomNo, 0x20);
 
+#ifdef TARGET_PC
+    static int s_objset_log = 0;
+    if (s_objset_log < 10) {
+        fprintf(stderr, "[ROOMSCN] objectSetCheck room=%d field_0x1d4=%d flg8=%d flg20=%d\n",
+                roomNo, i_this->field_0x1d4, status_flag_8, status_flag_20);
+        fflush(stderr);
+        s_objset_log++;
+    }
+#endif
+
     if (i_this->field_0x1d4 == 0 || (i_this->field_0x1d4 > 0 && !status_flag_8)) {
         if (!status_flag_8) {
             switch (i_this->field_0x1d4) {
             case 0:
                 if (!resetArchiveBank(roomNo)) {
+#ifdef TARGET_PC
+                    if (s_objset_log < 50) { fprintf(stderr, "[ROOMSCN] resetArchiveBank failed for room=%d\n", roomNo); s_objset_log++; }
+#endif
                     return 0;
                 }
                 i_this->field_0x1d4++;
             case 1:
                 if (!setArchiveBank(roomNo)) {
+#ifdef TARGET_PC
+                    if (s_objset_log < 50) { fprintf(stderr, "[ROOMSCN] setArchiveBank failed for room=%d\n", roomNo); s_objset_log++; }
+#endif
                     return 0;
                 }
 
@@ -226,10 +242,16 @@ static bool objectSetCheck(room_of_scene_class* i_this) {
                     dStage_escapeRestart();
                     #endif
                 } else if (phase > 0) {
+#ifdef TARGET_PC
+                    if (s_objset_log < 50) { fprintf(stderr, "[ROOMSCN] demo archive not ready for room=%d\n", roomNo); s_objset_log++; }
+#endif
                     return 0;
                 }
             }
 
+#ifdef TARGET_PC
+            fprintf(stderr, "[ROOMSCN] creating BG actor for room=%d\n", roomNo);
+#endif
             fopAcM_create(fpcNm_BG_e, roomNo, NULL, -1, NULL, NULL, -1);
             dComIfGp_getPEvtManager()->demoInit();
             dComIfGp_getPEvtManager()->roomInit(roomNo);
@@ -362,6 +384,10 @@ static int dScnRoom_Delete(room_of_scene_class* i_this) {
 static int phase_0(room_of_scene_class* i_this) {
     int param = fopScnM_GetParam(i_this);
     int roomNo = fopScnM_GetParam(i_this);
+#ifdef TARGET_PC
+    fprintf(stderr, "[ROOMSCN] phase_0: room=%d\n", roomNo);
+    fflush(stderr);
+#endif
     dStage_roomControl_c::setStatusProcID(roomNo, fopScnM_GetID(i_this));
     return cPhs_NEXT_e;
 }
@@ -371,6 +397,10 @@ static int phase_1(room_of_scene_class* i_this) {
 
     int roomNo = fopScnM_GetParam(i_this);
     const char* arcName = setArcName(i_this);
+#ifdef TARGET_PC
+    fprintf(stderr, "[ROOMSCN] phase_1: room=%d arc=%s\n", roomNo, arcName);
+    fflush(stderr);
+#endif
 
     if (dComIfG_syncStageRes(arcName) < 0) {
         JKRExpHeap* heap = dStage_roomControl_c::getMemoryBlock(roomNo);
@@ -405,6 +435,11 @@ static int phase_2(room_of_scene_class* i_this) {
     const char* arcName = setArcName(i_this);
 
     int rt = dComIfG_syncStageRes(arcName);
+#ifdef TARGET_PC
+    fprintf(stderr, "[ROOMSCN] phase_2: room=%d arc=%s sync=%d\n", fopScnM_GetParam(i_this), arcName,
+            rt);
+    fflush(stderr);
+#endif
     if (rt < 0) {
         //! In Wii USA Revision 0, if a stage's resources fail to load, the stage will restart as a failsafe.
         //! In later versions this failsafe was removed, and the room will simply not load.
@@ -440,7 +475,22 @@ static int phase_2(room_of_scene_class* i_this) {
     i_this->roomInfo = dComIfG_getStageRes(arcName, "room.dzr");
 
     if (i_this->roomInfo != NULL) {
+#ifdef TARGET_PC
+        fprintf(stderr, "[ROOMSCN] phase_2: room=%d roomInfo=%p loading room.dzr\n", roomNo,
+                i_this->roomInfo);
+        fflush(stderr);
+#endif
         dStage_dt_c_roomLoader(i_this->roomInfo, i_this->roomDt, roomNo);
+#ifdef TARGET_PC
+        fprintf(stderr, "[ROOMSCN] phase_2: room=%d roomLoader done player=%p camera=%p\n", roomNo,
+                (void*)dComIfGp_getPlayer(0), (void*)dComIfGp_getRoomCamera(roomNo));
+        fflush(stderr);
+#endif
+    } else {
+#ifdef TARGET_PC
+        fprintf(stderr, "[ROOMSCN] phase_2: room=%d missing room.dzr\n", roomNo);
+        fflush(stderr);
+#endif
     }
 
     JKRHeap* old_heap = NULL;
@@ -478,6 +528,15 @@ static int phase_3(room_of_scene_class* i_this) {
 
 static int phase_4(room_of_scene_class* i_this) {
     if (dComIfGp_getPlayer(0) == NULL) {
+#ifdef TARGET_PC
+        static int s_wait_log = 0;
+        if (s_wait_log < 20) {
+            fprintf(stderr, "[ROOMSCN] phase_4: waiting for player in room=%d\n",
+                    fopScnM_GetParam(i_this));
+            fflush(stderr);
+            s_wait_log++;
+        }
+#endif
         return cPhs_INIT_e;
     }
 

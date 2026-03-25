@@ -146,6 +146,12 @@ void daAlink_c::changeCommon() {
 
 void daAlink_c::changeWolf() {
     JKRHeap* current_heap = mAnmHeap3.setAnimeHeap();
+#ifdef TARGET_PC
+    if (current_heap == NULL) {
+        fprintf(stderr, "[ALINK] changeWolf: anmHeap3 returned NULL, skipping model setup\n");
+        return;
+    }
+#endif
 
     mpLinkModel = initModel(static_cast<J3DModelData*>(dComIfG_getObjectRes(l_wArcName, 14)), 0x20200);
 
@@ -277,6 +283,12 @@ void daAlink_c::changeWolf() {
 
 void daAlink_c::changeLink(int param_0) {
     JKRHeap* current_heap = mAnmHeap3.setAnimeHeap();
+#ifdef TARGET_PC
+    if (current_heap == NULL) {
+        fprintf(stderr, "[ALINK] changeLink: anmHeap3 returned NULL, skipping model setup\n");
+        return;
+    }
+#endif
     offNoResetFlg2(daPy_FLG2(FLG2_UNK_100000 | FLG2_UNK_80000));
     mMagicArmorBodyBrk = NULL;
     mMagicArmorHeadBrk = NULL;

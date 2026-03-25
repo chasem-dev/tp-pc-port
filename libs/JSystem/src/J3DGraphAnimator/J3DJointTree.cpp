@@ -42,8 +42,16 @@ void J3DJointTree::makeHierarchy(J3DJoint* pJoint, const J3DModelHierarchy** pHi
         case kTypeEnd:
             return;
         case kTypeJoint:
-            newJoint = mJointNodePointer[((*pHierarchy)++)->mValue];
+        {
+            u16 jointIdx = ((*pHierarchy)++)->mValue;
+#ifdef TARGET_PC
+            if (jointIdx >= mJointNum || mJointNodePointer == NULL) {
+                break;
+            }
+#endif
+            newJoint = mJointNodePointer[jointIdx];
             break;
+        }
         case kTypeMaterial:
             newMaterial = pMaterialTable->getMaterialNodePointer(((*pHierarchy)++)->mValue);
             break;
@@ -70,20 +78,60 @@ void J3DJointTree::makeHierarchy(J3DJoint* pJoint, const J3DModelHierarchy** pHi
 }
 
 void J3DJointTree::findImportantMtxIndex() {
-    s32 wEvlpMtxNum = getWEvlpMtxNum();
+#ifdef TARGET_PC
+    /* Skip on PC for now — this function accesses EVP1/DRW1 data pointers
+     * that may be corrupt from incomplete byte-swapping of certain J3D blocks.
+     * It computes "important matrix indices" for envelope weight optimization,
+     * which is not essential for basic rendering. */
+    return;
+#endif
+    s32 wEvlpMtxNum = mWEvlpMtxNum;
     u32 tableIdx = 0;
-    u16 drawFullWgtMtxNum = getDrawFullWgtMtxNum();
-    u16* wEvlpMixIndex = getWEvlpMixMtxIndex();
-    f32* wEvlpMixWeight = getWEvlpMixWeight();
-    u16* wEvlpImportantMtxIdx = getWEvlpImportantMtxIndex();
+    u16 drawFullWgtMtxNum = mDrawMtxData.mDrawFullWgtMtxNum;
+    u16 drawMtxNum = mDrawMtxData.mEntryNum;
+    u16* drawMtxIndex = mDrawMtxData.mDrawMtxIndex;
+    u8* wEvlpMixMtxNum = mWEvlpMixMtxNum;
+    u16* wEvlpMixIndex = mWEvlpMixMtxIndex;
+    f32* wEvlpMixWeight = mWEvlpMixWeight;
+    u16* wEvlpImportantMtxIdx = mWEvlpImportantMtxIdx;
+
+    if (wEvlpImportantMtxIdx == NULL) {
+        return;
+    }
+
+    if (drawFullWgtMtxNum > drawMtxNum) {
+#ifdef TARGET_PC
+        fprintf(stderr,
+                "[J3D] clamp drawFullWgtMtxNum from %u to %u (drawIdxPtr=%p)\n",
+                drawFullWgtMtxNum, drawMtxNum, (void*)drawMtxIndex);
+        fflush(stderr);
+#endif
+        drawFullWgtMtxNum = drawMtxNum;
+    }
 
     // Rigid matrices are easy.
-    for (u16 i = 0; i < drawFullWgtMtxNum; i++)
-        wEvlpImportantMtxIdx[i] = getDrawMtxIndex(i);
+    if (drawMtxIndex != NULL) {
+        for (u16 i = 0; i < drawFullWgtMtxNum; i++) {
+            wEvlpImportantMtxIdx[i] = drawMtxIndex[i];
+        }
+    }
+
+#ifdef TARGET_PC
+    if (wEvlpMtxNum > 0) {
+        for (s32 i = 0; i < wEvlpMtxNum; i++) {
+            wEvlpImportantMtxIdx[i + drawFullWgtMtxNum] = 0;
+        }
+        return;
+    }
+#endif
+
+    if (wEvlpMtxNum <= 0 || wEvlpMixMtxNum == NULL || wEvlpMixIndex == NULL || wEvlpMixWeight == NULL) {
+        return;
+    }
 
     // For envelope matrices, we need to find the matrix with the most contribution.
     for (s32 i = 0; i < wEvlpMtxNum; i++) {
-        s32 mixNum = getWEvlpMixMtxNum(i);
+        s32 mixNum = wEvlpMixMtxNum[i];
         u16 bestIdx = 0;
         f32 bestWeight = -0.1f;
 

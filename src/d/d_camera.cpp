@@ -10937,6 +10937,7 @@ static int camera_execute(camera_process_class* i_this) {
 static int camera_draw(camera_process_class* i_this) {
     camera_class* a_this = (camera_class*)i_this;
     dCamera_c* body = &i_this->mCamera;
+
     dDlst_window_c* window = get_window(a_this);
     view_port_class* viewport = window->getViewPort();
     camera_process_class* process = i_this;

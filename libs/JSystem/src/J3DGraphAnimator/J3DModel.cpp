@@ -7,6 +7,9 @@
 #include "JSystem/J3DGraphBase/J3DMaterial.h"
 #include "JSystem/J3DGraphBase/J3DShapeMtx.h"
 #include "JSystem/J3DGraphBase/J3DSys.h"
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
 
 #define J3D_ASSERTMSG(LINE, COND, MSG) JUT_ASSERT_MSG(LINE, (COND) != 0, MSG)
 #define J3D_WARN1(LINE, MSG, ARG1) JUT_WARN(LINE, MSG, ARG1)
@@ -129,8 +132,53 @@ s32 J3DModel::createMatPacket(J3DModelData* pModelData, u32 mdlFlags) {
     u16 matNum = pModelData->getMaterialNum();
     for (u16 i = 0; i < matNum; i++) {
         J3DMaterial* materialNode = pModelData->getMaterialNodePointer(i);
+#ifdef TARGET_PC
+        if (materialNode == NULL) {
+            fprintf(stderr,
+                    "[J3D] createMatPacket: material[%u] is NULL (matNum=%u shapeNum=%u jointNum=%u model=%p)\n",
+                    i, matNum, pModelData->getShapeNum(), pModelData->getJointNum(), (void*)this);
+            fflush(stderr);
+            return kJ3DError_Alloc;
+        }
+
+        J3DShape* materialShape = materialNode->getShape();
+        if (materialShape == NULL) {
+            J3DJoint* joint = materialNode->getJoint();
+            fprintf(stderr,
+                    "[J3D] createMatPacket: material[%u] has NULL shape (material=%p joint=%p jointNo=%d"
+                    " matNum=%u shapeNum=%u jointNum=%u next=%p)\n",
+                    i, (void*)materialNode, (void*)joint, joint != NULL ? joint->getJntNo() : -1,
+                    matNum, pModelData->getShapeNum(), pModelData->getJointNum(),
+                    (void*)materialNode->getNext());
+            if (joint != NULL) {
+                J3DMaterial* mesh = joint->getMesh();
+                for (u32 chain = 0; mesh != NULL && chain < 8; chain++, mesh = mesh->getNext()) {
+                    J3DShape* meshShape = mesh->getShape();
+                    fprintf(stderr,
+                            "[J3D]   joint mesh[%u]: material=%p idx=%u shape=%p shapeIdx=%d next=%p\n",
+                            chain, (void*)mesh, mesh->getIndex(), (void*)meshShape,
+                            meshShape != NULL ? meshShape->getIndex() : -1, (void*)mesh->getNext());
+                }
+            }
+            fflush(stderr);
+            return kJ3DError_Alloc;
+        }
+
+        u16 shapeIndex = materialShape->getIndex();
+        if (shapeIndex >= pModelData->getShapeNum()) {
+            fprintf(stderr,
+                    "[J3D] createMatPacket: material[%u] shape index %u out of range (shapeNum=%u material=%p shape=%p)\n",
+                    i, shapeIndex, pModelData->getShapeNum(), (void*)materialNode,
+                    (void*)materialShape);
+            fflush(stderr);
+            return kJ3DError_Alloc;
+        }
+#else
+        J3DShape* materialShape = materialNode->getShape();
+        u16 shapeIndex = materialShape->getIndex();
+#endif
         J3DMatPacket* matPacket = mMatPacket + i;
-        J3DShapePacket* shapePacket = mShapePacket + materialNode->getShape()->getIndex();
+        J3DShapePacket* shapePacket = mShapePacket + shapeIndex;
 
         matPacket->setMaterial(materialNode);
         matPacket->setInitShapePacket(shapePacket);
@@ -404,6 +452,16 @@ void J3DModel::update() {
 }
 
 void J3DModel::calc() {
+#ifdef TARGET_PC
+    static int s_mc = 0;
+    s_mc++;
+    bool logThis = (mModelData && mModelData->getJointNum() > 1);
+    if (logThis && s_mc < 50) {
+        fprintf(stderr, "[J3DModel] calc #%d: this=%p joints=%d mMtxBuffer=%p\n",
+                s_mc, (void*)this, mModelData->getJointNum(), (void*)mMtxBuffer);
+        fflush(stderr);
+    }
+#endif
     j3dSys.setModel(this);
 
     if (checkFlag(J3DMdlFlag_SkinPosCpu)) {
@@ -419,8 +477,18 @@ void J3DModel::calc() {
     }
 
     mModelData->syncJ3DSysFlags();
+#ifdef TARGET_PC
+    if (logThis) { fprintf(stderr, "[J3DModel] calc: syncFlags...\n"); fflush(stderr); }
+#endif
     mVertexBuffer.frameInit();
+#ifdef TARGET_PC
+    if (logThis) { fprintf(stderr, "[J3DModel] calc: frameInit OK\n"); fflush(stderr); }
+#endif
 
+#ifdef TARGET_PC
+    if (logThis) { fprintf(stderr, "[J3DModel] calc: unkCalc2=%p deform=%p vtxColor=%p unkCalc1=%p\n",
+                           (void*)mUnkCalc2, (void*)mDeformData, (void*)mVtxColorCalc, (void*)mUnkCalc1); fflush(stderr); }
+#endif
     if (mUnkCalc2 != NULL) {
         mUnkCalc2->calc(mModelData);
     }
@@ -436,6 +504,9 @@ void J3DModel::calc() {
     if (mUnkCalc1 != NULL) {
         mUnkCalc1->calc(this);
     }
+#ifdef TARGET_PC
+    if (logThis) { fprintf(stderr, "[J3DModel] calc: calcAnmMtx...\n"); fflush(stderr); }
+#endif
 
     calcAnmMtx();
     calcWeightEnvelopeMtx();
@@ -473,6 +544,28 @@ void J3DModel::entry() {
             joint->entryIn();
         }
     }
+#ifdef TARGET_PC
+    {
+        static int s_entry_log = 0;
+        if (s_entry_log < 20 || mModelData->getShapeNum() > 10) {
+            int totalShapes = mModelData->getShapeNum();
+            int totalShapeDraws = 0;
+            for (int i = 0; i < totalShapes; i++) {
+                J3DShape* shape = mModelData->getShapeNodePointer(i);
+                if (shape) {
+                    for (int g = 0; g < shape->getMtxGroupNum(); g++) {
+                        if (shape->getShapeDraw(g) != NULL)
+                            totalShapeDraws++;
+                    }
+                }
+            }
+            fprintf(stderr, "[J3D-ENTRY] model=%p joints=%d shapes=%d shapeDraws=%d opaBuf=%p\n",
+                    (void*)this, mModelData->getJointNum(), totalShapes, totalShapeDraws,
+                    (void*)j3dSys.getDrawBuffer(0));
+            s_entry_log++;
+        }
+    }
+#endif
 }
 
 void J3DModel::viewCalc() {

@@ -331,8 +331,8 @@ void dMsgFlow_c::setInitValueGroupChange(int i_msgNo, fopAc_ac_c** i_talkPartner
 u8* dMsgFlow_c::getMsgDataBlock(char const* block_tag) {
     u8* block_p = NULL;
     u8* aMsgRes_p = NULL;
-
-    char tag[5] = {0};
+    u32 block_tag_value = ((u32)(u8)block_tag[0] << 24) | ((u32)(u8)block_tag[1] << 16) |
+                          ((u32)(u8)block_tag[2] << 8) | (u32)(u8)block_tag[3];
 
     aMsgRes_p = dMsgObject_getMsgDtPtr();
     JUT_ASSERT(742, NULL != aMsgRes_p);
@@ -342,9 +342,8 @@ u8* dMsgFlow_c::getMsgDataBlock(char const* block_tag) {
 
     for (u32 i = 0; i < num; i++) {
         block_p = aMsgRes_p;
-        memcpy(tag, block_p, 4);
 
-        if (strcmp(tag, block_tag) == 0) {
+        if (*(u32*)block_p == block_tag_value) {
             return aMsgRes_p;
         }
 

@@ -165,14 +165,18 @@ static void pl_check(bd_class* i_this) {
     f32 var_f31;
 
     cXyz sp8 = i_this->field_0x5C4 - player->current.pos;
+#ifdef TARGET_PC
+    uintptr_t var_r28 = 0;
+#else
     u32 var_r28 = 0;
+#endif
     if (i_this->field_0x658 != 0 || i_this->field_0x5B6 >= 1) {
         return;
     }
 
     if ((i_this->field_0x618 & 0xF) == 0) {
 #ifdef TARGET_PC
-        var_r28 = (u32)(uintptr_t)fpcM_Search(s_a_sub, i_this);
+        var_r28 = (uintptr_t)fpcM_Search(s_a_sub, i_this);
 #else
         var_r28 = (u32)fpcM_Search(s_a_sub, i_this);
 #endif

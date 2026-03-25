@@ -1276,6 +1276,15 @@ int daBgObj_c::Execute(Mtx** param_0) {
 }
 
 int daBgObj_c::Draw() {
+#ifdef TARGET_PC
+    extern int g_pc_verbose;
+    static int s_bgobj_draw_log = 0;
+    if (g_pc_verbose && s_bgobj_draw_log < 120) {
+        fprintf(stderr, "[BGOBJ] draw cc8=%d slot0=%p slot1=%p\n",
+                field_0xcc8, (void*)field_0x5a8[field_0xcc8][0], (void*)field_0x5a8[field_0xcc8][1]);
+        s_bgobj_draw_log++;
+    }
+#endif
     bool bvar = true;
     for (int i = 0; i < 2; i++) {
         if (field_0x5a8[field_0xcc8][i] != NULL) {
@@ -1298,6 +1307,18 @@ int daBgObj_c::Draw() {
     for (int i = 0; i < 2; i++) {
         dComIfGd_setListBG();
         if (field_0x5a8[field_0xcc8][i] != NULL) {
+#ifdef TARGET_PC
+            if (g_pc_verbose && s_bgobj_draw_log < 120) {
+                J3DModelData* md = field_0x5a8[field_0xcc8][i]->getModelData();
+                fprintf(stderr, "[BGOBJ] slot=%d model=%p modelData=%p shapes=%u mats=%u shared0=%p\n",
+                        i, (void*)field_0x5a8[field_0xcc8][i], (void*)md,
+                        md ? md->getShapeNum() : 0, md ? md->getMaterialNum() : 0,
+                        (md && md->getMaterialNum() > 0 && md->getMaterialNodePointer(0))
+                            ? (void*)md->getMaterialNodePointer(0)->getSharedDisplayListObj()
+                            : NULL);
+                s_bgobj_draw_log++;
+            }
+#endif
             indirectProc(field_0x5a8[field_0xcc8][i]);
             dKy_bg_MAxx_proc(field_0x5a8[field_0xcc8][i]);
 

@@ -17,6 +17,10 @@
 #include "JSystem/JKernel/JKRSolidHeap.h"
 #include "JSystem/J3DGraphAnimator/J3DMaterialAnm.h"
 #include <cstring>
+#ifdef TARGET_PC
+#include <cstdio>
+extern int g_pc_verbose;
+#endif
 
 const char* daBg_c::setArcName() {
     static char arcName[32];
@@ -295,6 +299,15 @@ int daBg_c::draw() {
     camera_process_class* sp30 = dComIfGp_getCamera(sp34->getCameraID());
 
     dComIfGd_setListBG();
+#ifdef TARGET_PC
+    {
+        static int s_bg_set = 0;
+        if (s_bg_set++ < 3) {
+            fprintf(stderr, "[BG-ENTRY] setListBG done. BG buffer=%p\n",
+                    (void*)g_dComIfG_gameInfo.drawlist.getOpaListBG());
+        }
+    }
+#endif
     mDoLib_clipper::changeFar(1000000.0f);
 
     J3DModelData* modelData;
@@ -304,11 +317,51 @@ int daBg_c::draw() {
         sp9 = 0;
 
         bg_model = bgPart->model;
+#ifdef TARGET_PC
+        static int s_bg_draw_log = 0;
+        if (s_bg_draw_log < 120) {
+            fprintf(stderr, "[BGDRAW] part=%d model=%p tev=%p btk=%p brk=%p\n",
+                    i, (void*)bg_model, (void*)bgPart->tevstr, (void*)bgPart->btk, (void*)bgPart->brk);
+            s_bg_draw_log++;
+        }
+#endif
         
         if (bg_model != NULL) {
             modelData = bg_model->getModelData();
+#ifdef TARGET_PC
+            if (s_bg_draw_log < 140) {
+                fprintf(stderr, "[BGDRAW] part=%d modelData=%p shapes=%u mats=%u\n",
+                        i, (void*)modelData, modelData ? modelData->getShapeNum() : 0,
+                        modelData ? modelData->getMaterialNum() : 0);
+                if (modelData != NULL && modelData->getMaterialNum() > 0 &&
+                    modelData->getMaterialNodePointer(0) != NULL)
+                {
+                    fprintf(stderr, "[BGDRAW] part=%d mat0 sharedDL=%p\n",
+                            i, (void*)modelData->getMaterialNodePointer(0)->getSharedDisplayListObj());
+                }
+                if (modelData != NULL && i == 0) {
+                    int meshJoints = 0;
+                    for (u16 ji = 0; ji < modelData->getJointNum(); ji++) {
+                        J3DJoint* j = modelData->getJointNodePointer(ji);
+                        if (j != NULL && j->getMesh() != NULL) {
+                            meshJoints++;
+                        }
+                    }
+                    fprintf(stderr, "[BGDRAW] part=%d joints=%u meshJoints=%d\n",
+                            i, modelData->getJointNum(), meshJoints);
+                }
+                s_bg_draw_log++;
+            }
+#endif
+            if (modelData == NULL) {
+                bgPart++;
+                continue;
+            }
 
             if (bgPart->btk != NULL) {
+#ifdef TARGET_PC
+                if (s_bg_draw_log < 170) { fprintf(stderr, "[BGDRAW] part=%d before btk entry\n", i); s_bg_draw_log++; }
+#endif
                 bgPart->btk->entryFrame();
             }
 
@@ -321,22 +374,57 @@ int daBg_c::draw() {
             }
 
             bg_model->calc();
+#ifdef TARGET_PC
+            if (s_bg_draw_log < 180) { fprintf(stderr, "[BGDRAW] part=%d after calc\n", i); s_bg_draw_log++; }
+#endif
 
             for (u16 j = 0; j < modelData->getShapeNum(); j++) {
                 J3DShape* shape = modelData->getShapeNodePointer(j);
-
+                if (shape == NULL) {
+                    continue;
+                }
+#ifdef TARGET_PC
+                /* Some opening-scene BG bounds are malformed after conversion and
+                 * get clipped away entirely. Keep shapes visible on PC. */
+                shape->show();
+#else
                 if (mDoLib_clipper::clip(j3dSys.getViewMtx(), (Vec*)shape->getMin(),
                                          (Vec*)shape->getMax())) {
                     shape->hide();
                 } else {
                     shape->show();
                 }
+#endif
+#ifdef TARGET_PC
+                if (g_pc_verbose && i == 0 && j < 3) {
+                    J3DShapeDraw* sd0 = (shape->getMtxGroupNum() > 0) ? shape->getShapeDraw(0) : NULL;
+                    fprintf(stderr,
+                            "[BGDRAW-SHAPE] part=%d shape=%d mtxGroups=%u draw0=%p dl0=%p dl0Size=%u\n",
+                            i, j, shape->getMtxGroupNum(), (void*)sd0,
+                            sd0 ? sd0->getDisplayList() : NULL,
+                            sd0 ? sd0->getDisplayListSize() : 0);
+                }
+#endif
             }
+#ifdef TARGET_PC
+            if (s_bg_draw_log < 190) { fprintf(stderr, "[BGDRAW] part=%d after shape clip loop\n", i); s_bg_draw_log++; }
+#endif
 
             static int l_tevStrType[6] = {32, 33, 34, 35, 35, 32};
+            if (bgPart->tevstr == NULL) {
+                mDoExt_modelEntryDL(bg_model);
+                dComIfGd_setListBG();
+                bgPart++;
+                continue;
+            }
             g_env_light.settingTevStruct(l_tevStrType[i], NULL, bgPart->tevstr);
-            g_env_light.setLightTevColorType_MAJI(bg_model, bgPart->tevstr);
-            dKy_bg_MAxx_proc(bg_model);
+            if (modelData->getMaterialNum() > 1) {
+                g_env_light.setLightTevColorType_MAJI(bg_model, bgPart->tevstr);
+                dKy_bg_MAxx_proc(bg_model);
+            }
+#ifdef TARGET_PC
+            if (s_bg_draw_log < 200) { fprintf(stderr, "[BGDRAW] part=%d after light setup\n", i); s_bg_draw_log++; }
+#endif
 
             if (bg_model != NULL) {
                 modelData = bg_model->getModelData();
@@ -348,7 +436,13 @@ int daBg_c::draw() {
 
                     mat = modelData->getMaterialNodePointer(j);
                     nametab = modelData->getMaterialName();
+                    if (mat == NULL || nametab == NULL) {
+                        continue;
+                    }
                     name = nametab->getName(j);
+                    if (name == NULL || strlen(name) < 4) {
+                        continue;
+                    }
 
                     if (!memcmp(&name[3], "MA12", 4)) {
                         if (g_env_light.wether_pat1 == 6) {
@@ -450,6 +544,9 @@ int daBg_c::draw() {
             }
 
             mDoExt_modelEntryDL(bg_model);
+#ifdef TARGET_PC
+            if (s_bg_draw_log < 210) { fprintf(stderr, "[BGDRAW] part=%d after modelEntryDL\n", i); s_bg_draw_log++; }
+#endif
             dComIfGd_setListBG();
         }
 

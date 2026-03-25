@@ -21,8 +21,29 @@
 
 #include <cstdlib>
 #include <cstring>
+#ifdef TARGET_PC
+#include <cstdio>
+#endif
+
+#if defined(TARGET_PC) && !DEBUG
+/* PC non-debug builds do not compile debug preset support symbols.
+ * Provide minimal no-op definitions so MENU_SCENE can link and run. */
+dScnPly_preset_HIO_c::dScnPly_preset_HIO_c() {
+    field_0x5 = 0;
+    memset(mPresetData, 0, sizeof(mPresetData));
+    memset(filename_buf, 0, sizeof(filename_buf));
+    field_0x2716 = 0;
+    field_0x2717 = 0;
+}
+dScnPly_preset_HIO_c g_presetHIO;
+void dScnPly_preset_HIO_c::exePreset() {}
+void dScnPly_preset_HIO_c::listenPropertyEvent(const JORPropertyEvent*) {}
+void dScnPly_preset_HIO_c::genMessage(JORMContext*) {}
+void dComIfG_playerStatusD() {}
+void dComIfG_playerStatusD_pre_clear() {}
+#endif
  
-#if DEBUG
+#if DEBUG || defined(TARGET_PC)
 void dScnMenu_setItem(int i_slotNo, u8 i_itemNo);
 void dScnMenu_setPlayerDebugMode();
 void dScnMenu_setPlayerItemReset();
@@ -1493,7 +1514,13 @@ int dScnMenu_Delete(dScnMenu_c* i_this) {
 }
 
 int phase_1(dScnMenu_c* i_this) {
+#ifdef TARGET_PC
+    fprintf(stderr, "[MENU] phase_1 begin this=%p\n", (void*)i_this);
+#endif
     if (!dStage_roomControl_c::resetArchiveBank(0)) {
+#ifdef TARGET_PC
+        fprintf(stderr, "[MENU] phase_1 waiting resetArchiveBank\n");
+#endif
         return cPhs_INIT_e;
     }
 
@@ -1503,9 +1530,15 @@ int phase_1(dScnMenu_c* i_this) {
     OS_REPORT("Menu Create !!\n");
 
     i_this->command = mDoDvdThd_toMainRam_c::create("/res/Menu/Menu1.dat", 0, NULL);
+#ifdef TARGET_PC
+    fprintf(stderr, "[MENU] command=%p\n", (void*)i_this->command);
+#endif
     JUT_ASSERT(3083, i_this->command != NULL);
 
     i_this->fontCommand = mDoDvdThd_toMainRam_c::create("/res/Menu/kanfont_fix16.bfn", 0, NULL);
+#ifdef TARGET_PC
+    fprintf(stderr, "[MENU] fontCommand=%p\n", (void*)i_this->fontCommand);
+#endif
     JUT_ASSERT(3086, i_this->fontCommand != NULL);
 
     dComIfG_playerStatusD();
@@ -1567,6 +1600,10 @@ u8 search(menu_info_class* i_info) {
 }
 
 int phase_2(dScnMenu_c* i_this) {
+#ifdef TARGET_PC
+    fprintf(stderr, "[MENU] phase_2 begin this=%p cmd=%p fcmd=%p\n",
+            (void*)i_this, (void*)i_this->command, (void*)i_this->fontCommand);
+#endif
     if (!i_this->command->sync() || !i_this->fontCommand->sync()) {
         return cPhs_INIT_e;
     }
@@ -1649,7 +1686,12 @@ int dScnMenu_Create(scene_class* i_this) {
     dScnMenu_c* a_this = (dScnMenu_c*)i_this;
 
     l_languageType = dComIfGs_getPalLanguage();
-    return dComLbG_PhaseHandler(&a_this->phase, l_method, a_this);
+    int ret = dComLbG_PhaseHandler(&a_this->phase, l_method, a_this);
+#ifdef TARGET_PC
+    fprintf(stderr, "[MENU] dScnMenu_Create ret=%d phase_id=%d this=%p\n",
+            ret, a_this->phase.id, (void*)a_this);
+#endif
+    return ret;
 }
 
 void dScnMenu_setItem(int i_slotNo, u8 i_itemNo) {

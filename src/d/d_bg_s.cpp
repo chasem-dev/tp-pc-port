@@ -11,6 +11,10 @@
 #include "d/d_com_inf_game.h"
 #include "f_op/f_op_actor_mng.h"
 
+#ifdef TARGET_PC
+#include "pc_bswap.h"
+#endif
+
 #if DEBUG
 #include "d/d_debug_viewer.h"
 #include "d/d_bg_s_capt_poly.h"
@@ -307,9 +311,123 @@ f32 cBgS::GroundCross(cBgS_GndChk* pgndchk) {
     return pgndchk->GetNowY();
 }
 
+namespace {
+#ifdef TARGET_PC
+struct cBgD_t_raw {
+    /* 0x00 */ u32 m_v_num;
+    /* 0x04 */ u32 m_v_tbl;
+    /* 0x08 */ u32 m_t_num;
+    /* 0x0C */ u32 m_t_tbl;
+    /* 0x10 */ u32 m_b_num;
+    /* 0x14 */ u32 m_b_tbl;
+    /* 0x18 */ u32 m_tree_num;
+    /* 0x1C */ u32 m_tree_tbl;
+    /* 0x20 */ u32 m_g_num;
+    /* 0x24 */ u32 m_g_tbl;
+    /* 0x28 */ u32 m_ti_num;
+    /* 0x2C */ u32 m_ti_tbl;
+    /* 0x30 */ u32 m_flags;
+};  // Size: 0x34
+
+struct cBgD_Grp_t_raw {
+    /* 0x00 */ u32 m_nameOffset;
+    /* 0x04 */ cXyz m_scale;
+    /* 0x10 */ csXyz m_rotation;
+    /* 0x18 */ cXyz m_translation;
+    /* 0x24 */ u16 m_parent;
+    /* 0x26 */ u16 m_next_sibling;
+    /* 0x28 */ u16 m_first_child;
+    /* 0x2A */ u16 m_room_id;
+    /* 0x2C */ u16 m_first_vtx_idx;
+    /* 0x2E */ u16 m_tree_idx;
+    /* 0x30 */ u32 m_info;
+};  // Size: 0x34
+
+static inline f32 dBgS_bswapF32(f32 value) {
+    u32 raw;
+    memcpy(&raw, &value, sizeof(raw));
+    raw = pc_bswap32(raw);
+    memcpy(&value, &raw, sizeof(raw));
+    return value;
+}
+
+template <typename T>
+static inline T* dBgS_offsetPtr(void* base, u32 offset) {
+    if (offset == 0) {
+        return NULL;
+    }
+
+    return reinterpret_cast<T*>(reinterpret_cast<u8*>(base) + offset);
+}
+
+static void dBgS_bswapVtxTable(cBgD_Vtx_t* table, int count) {
+    for (int i = 0; i < count; i++) {
+        u32* words = reinterpret_cast<u32*>(&table[i]);
+        words[0] = pc_bswap32(words[0]);
+        words[1] = pc_bswap32(words[1]);
+        words[2] = pc_bswap32(words[2]);
+    }
+}
+
+static void dBgS_bswapTriTable(cBgD_Tri_t* table, int count) {
+    for (int i = 0; i < count; i++) {
+        table[i].m_vtx_idx0 = pc_bswap16(table[i].m_vtx_idx0);
+        table[i].m_vtx_idx1 = pc_bswap16(table[i].m_vtx_idx1);
+        table[i].m_vtx_idx2 = pc_bswap16(table[i].m_vtx_idx2);
+        table[i].m_id = pc_bswap16(table[i].m_id);
+        table[i].m_grp = pc_bswap16(table[i].m_grp);
+    }
+}
+
+static void dBgS_bswapBlkTable(cBgD_Blk_t* table, int count) {
+    for (int i = 0; i < count; i++) {
+        table[i].field_0x0 = pc_bswap16(table[i].field_0x0);
+    }
+}
+
+static void dBgS_bswapTreeTable(cBgD_Tree_t* table, int count) {
+    for (int i = 0; i < count; i++) {
+        table[i].m_flag = pc_bswap16(table[i].m_flag);
+        table[i].m_parent_id = pc_bswap16(table[i].m_parent_id);
+        for (int j = 0; j < 8; j++) {
+            table[i].m_id[j] = pc_bswap16(table[i].m_id[j]);
+        }
+    }
+}
+
+static void dBgS_bswapGroupTable(cBgD_Grp_t_raw* table, int count) {
+    for (int i = 0; i < count; i++) {
+        table[i].m_nameOffset = pc_bswap32(table[i].m_nameOffset);
+        table[i].m_scale.x = dBgS_bswapF32(table[i].m_scale.x);
+        table[i].m_scale.y = dBgS_bswapF32(table[i].m_scale.y);
+        table[i].m_scale.z = dBgS_bswapF32(table[i].m_scale.z);
+        table[i].m_rotation.x = (s16)pc_bswap16((u16)table[i].m_rotation.x);
+        table[i].m_rotation.y = (s16)pc_bswap16((u16)table[i].m_rotation.y);
+        table[i].m_rotation.z = (s16)pc_bswap16((u16)table[i].m_rotation.z);
+        table[i].m_translation.x = dBgS_bswapF32(table[i].m_translation.x);
+        table[i].m_translation.y = dBgS_bswapF32(table[i].m_translation.y);
+        table[i].m_translation.z = dBgS_bswapF32(table[i].m_translation.z);
+        table[i].m_parent = pc_bswap16(table[i].m_parent);
+        table[i].m_next_sibling = pc_bswap16(table[i].m_next_sibling);
+        table[i].m_first_child = pc_bswap16(table[i].m_first_child);
+        table[i].m_room_id = pc_bswap16(table[i].m_room_id);
+        table[i].m_first_vtx_idx = pc_bswap16(table[i].m_first_vtx_idx);
+        table[i].m_tree_idx = pc_bswap16(table[i].m_tree_idx);
+        table[i].m_info = pc_bswap32(table[i].m_info);
+    }
+}
+
+static void dBgS_bswapTiTable(cBgD_Ti_t* table, int count) {
+    for (int i = 0; i < count; i++) {
+        table[i].m_info0 = pc_bswap32(table[i].m_info0);
+        table[i].m_info1 = pc_bswap32(table[i].m_info1);
+        table[i].m_info2 = pc_bswap32(table[i].m_info2);
+        table[i].m_passFlag = pc_bswap32(table[i].m_passFlag);
+    }
+}
+#else
 // this is identical to cBgD_t except using u32's for the table offsets.
-// u32 is needed to match in ConvDzb ?
-struct cBgD_t_ {
+struct cBgD_t_raw {
     // Vertex Info
     /* 0x00 */ int m_v_num;
     /* 0x04 */ u32 m_v_tbl;
@@ -337,13 +455,108 @@ struct cBgD_t_ {
     /* 0x30 */ u32 m_flags;
 };  // Size: 0x34
 
-struct cBgD_Grp_t_ {
-    u32 strOffset;
+struct cBgD_Grp_t_raw {
+    u32 m_nameOffset;
     u8 data[0x30];
 };
+#endif
+}  // namespace
 
 void* cBgS::ConvDzb(void* pdzb) {
-    cBgD_t_* pbgd = (cBgD_t_*)pdzb;
+#ifdef TARGET_PC
+    cBgD_t_raw* raw = reinterpret_cast<cBgD_t_raw*>(pdzb);
+
+    raw->m_v_num = pc_bswap32(raw->m_v_num);
+    raw->m_v_tbl = pc_bswap32(raw->m_v_tbl);
+    raw->m_t_num = pc_bswap32(raw->m_t_num);
+    raw->m_t_tbl = pc_bswap32(raw->m_t_tbl);
+    raw->m_b_num = pc_bswap32(raw->m_b_num);
+    raw->m_b_tbl = pc_bswap32(raw->m_b_tbl);
+    raw->m_tree_num = pc_bswap32(raw->m_tree_num);
+    raw->m_tree_tbl = pc_bswap32(raw->m_tree_tbl);
+    raw->m_g_num = pc_bswap32(raw->m_g_num);
+    raw->m_g_tbl = pc_bswap32(raw->m_g_tbl);
+    raw->m_ti_num = pc_bswap32(raw->m_ti_num);
+    raw->m_ti_tbl = pc_bswap32(raw->m_ti_tbl);
+    raw->m_flags = pc_bswap32(raw->m_flags);
+
+    JUT_ASSERT(596, (raw->m_v_tbl % 4) == 0);
+    JUT_ASSERT(597, (raw->m_t_tbl % 2) == 0);
+    JUT_ASSERT(598, (raw->m_b_tbl % 2) == 0);
+    JUT_ASSERT(599, (raw->m_tree_tbl % 2) == 0);
+    JUT_ASSERT(600, (raw->m_g_tbl % 4) == 0);
+    JUT_ASSERT(601, (raw->m_ti_tbl % 4) == 0);
+
+    cBgD_Vtx_t* vtxTable = dBgS_offsetPtr<cBgD_Vtx_t>(pdzb, raw->m_v_tbl);
+    cBgD_Tri_t* triTable = dBgS_offsetPtr<cBgD_Tri_t>(pdzb, raw->m_t_tbl);
+    cBgD_Blk_t* blkTable = dBgS_offsetPtr<cBgD_Blk_t>(pdzb, raw->m_b_tbl);
+    cBgD_Tree_t* treeTable = dBgS_offsetPtr<cBgD_Tree_t>(pdzb, raw->m_tree_tbl);
+    cBgD_Grp_t_raw* rawGroupTable = dBgS_offsetPtr<cBgD_Grp_t_raw>(pdzb, raw->m_g_tbl);
+    cBgD_Ti_t* tiTable = dBgS_offsetPtr<cBgD_Ti_t>(pdzb, raw->m_ti_tbl);
+
+    if (vtxTable != NULL) {
+        dBgS_bswapVtxTable(vtxTable, raw->m_v_num);
+    }
+    if (triTable != NULL) {
+        dBgS_bswapTriTable(triTable, raw->m_t_num);
+    }
+    if (blkTable != NULL) {
+        dBgS_bswapBlkTable(blkTable, raw->m_b_num);
+    }
+    if (treeTable != NULL) {
+        dBgS_bswapTreeTable(treeTable, raw->m_tree_num);
+    }
+    if (rawGroupTable != NULL) {
+        dBgS_bswapGroupTable(rawGroupTable, raw->m_g_num);
+    }
+    if (tiTable != NULL) {
+        dBgS_bswapTiTable(tiTable, raw->m_ti_num);
+    }
+
+    cBgD_t* bgd = new cBgD_t;
+    JUT_ASSERT(632, bgd != NULL);
+
+    bgd->m_v_num = (int)raw->m_v_num;
+    bgd->m_v_tbl = vtxTable;
+    bgd->m_t_num = (int)raw->m_t_num;
+    bgd->m_t_tbl = triTable;
+    bgd->m_b_num = (int)raw->m_b_num;
+    bgd->m_b_tbl = blkTable;
+    bgd->m_tree_num = (int)raw->m_tree_num;
+    bgd->m_tree_tbl = treeTable;
+    bgd->m_g_num = (int)raw->m_g_num;
+    bgd->m_g_tbl = NULL;
+    bgd->m_ti_num = (int)raw->m_ti_num;
+    bgd->m_ti_tbl = tiTable;
+    bgd->mFlags = (int)raw->m_flags;
+
+    if (rawGroupTable != NULL && raw->m_g_num > 0) {
+        cBgD_Grp_t* groupTable = new cBgD_Grp_t[raw->m_g_num];
+        JUT_ASSERT(645, groupTable != NULL);
+
+        for (u32 i = 0; i < raw->m_g_num; i++) {
+            groupTable[i].m_name =
+                rawGroupTable[i].m_nameOffset != 0
+                    ? reinterpret_cast<char*>(reinterpret_cast<u8*>(pdzb) + rawGroupTable[i].m_nameOffset)
+                    : NULL;
+            groupTable[i].m_scale = rawGroupTable[i].m_scale;
+            groupTable[i].m_rotation = rawGroupTable[i].m_rotation;
+            groupTable[i].m_translation = rawGroupTable[i].m_translation;
+            groupTable[i].m_parent = rawGroupTable[i].m_parent;
+            groupTable[i].m_next_sibling = rawGroupTable[i].m_next_sibling;
+            groupTable[i].m_first_child = rawGroupTable[i].m_first_child;
+            groupTable[i].m_room_id = rawGroupTable[i].m_room_id;
+            groupTable[i].m_first_vtx_idx = rawGroupTable[i].m_first_vtx_idx;
+            groupTable[i].m_tree_idx = rawGroupTable[i].m_tree_idx;
+            groupTable[i].m_info = rawGroupTable[i].m_info;
+        }
+
+        bgd->m_g_tbl = groupTable;
+    }
+
+    return bgd;
+#else
+    cBgD_t_raw* pbgd = (cBgD_t_raw*)pdzb;
 
     if (((pbgd->m_flags & 0x80000000) == 0)) {
         pbgd->m_flags |= 0x80000000;
@@ -369,10 +582,12 @@ void* cBgS::ConvDzb(void* pdzb) {
     pbgd->m_ti_tbl += (uintptr_t)pdzb;
 
     for (int i = 0; i < pbgd->m_g_num; i++) {
-        ((cBgD_Grp_t_*)pbgd->m_g_tbl)[i].strOffset = (uintptr_t)pdzb + ((cBgD_Grp_t_*)pbgd->m_g_tbl)[i].strOffset;
+        ((cBgD_Grp_t_raw*)pbgd->m_g_tbl)[i].m_nameOffset =
+            (uintptr_t)pdzb + ((cBgD_Grp_t_raw*)pbgd->m_g_tbl)[i].m_nameOffset;
     }
 
     return pdzb;
+#endif
 }
 
 fopAc_ac_c* cBgS::GetActorPointer(int actor_index) const {

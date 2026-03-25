@@ -603,6 +603,7 @@ s32 JASAramStream::channelProc() {
             channelStart();
             break;
         case 1:
+            // OS message values here are small integer tags packed into a pointer slot.
             channelStop(JSUHiHalf((u32)(uintptr_t)msg));
             break;
         case 2:

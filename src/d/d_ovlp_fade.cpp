@@ -82,7 +82,25 @@ static int dOvlpFd_FadeIn(overlap1_class* i_this) {
                 var_r30 = dComIfGp_getNextStageWipeSpeed();
             }
 
+#ifdef TARGET_PC
+            fprintf(stderr, "[OVLPFADE] FadeIn: prof=%d nextStage=%d wipe=%d faderStatus=%d\n",
+                    fpcM_GetProfName(i_this), dComIfGp_isEnableNextStage(), var_r30,
+                    JFWDisplay::getManager()->getFader()->getStatus());
+#endif
             if (!JFWDisplay::getManager()->startFadeOut(var_r30)) {
+#ifdef TARGET_PC
+                /* If fader is stuck at status 0 (faded out), force it to status 1
+                 * (visible) so the overlap fade-out can proceed. This happens when
+                 * the logo scene's last operation was a fade-out (Dolby screen). */
+                JUTFader* fader = JFWDisplay::getManager()->getFader();
+                if (fader != NULL && fader->getStatus() == 0) {
+                    static int s_force_count = 0;
+                    if (s_force_count++ == 0) {
+                        fprintf(stderr, "[OVLPFADE] Forcing fader to status 1 (was stuck at 0)\n");
+                    }
+                    fader->startFadeIn(1);  /* 1-frame instant fade-in */
+                }
+#endif
                 return 1;
             }
 
@@ -102,6 +120,9 @@ static int dOvlpFd_FadeIn(overlap1_class* i_this) {
     if (--i_this->field_0xd0 == 0) {
         dOvlpFd_execute_f = dOvlpFd_Wait;
         mDoGph_gInf_c::startFadeOut(0);
+#ifdef TARGET_PC
+        fprintf(stderr, "[OVLPFADE] FadeIn: completed, entering wait\n");
+#endif
         fopOvlpM_Done(i_this);
     }
 

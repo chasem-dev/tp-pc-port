@@ -218,6 +218,8 @@ void daPy_actorKeep_c::clearData() {
 daPy_anmHeap_c::daPy_anmHeap_c(u32 i_bufferSize) {
     initData();
     mBufferSize = i_bufferSize;
+    mBuffer = NULL;
+    mAnimeHeap = NULL;
 }
 
 daPy_anmHeap_c::~daPy_anmHeap_c() {
@@ -260,7 +262,14 @@ void daPy_anmHeap_c::createHeap(daPy_anmHeap_c::daAlinkHEAP_TYPE i_heapType) {
 
     JKRHeap* tmp;
     mAnimeHeap = mDoExt_createSolidHeapFromGameToCurrent(&tmp, size, 0x20);
-    
+#ifdef TARGET_PC
+    if (mAnimeHeap == NULL) {
+        fprintf(stderr, "[ALINK] anmHeap::createHeap: mDoExt_createSolidHeap returned NULL "
+                "(type=%d size=0x%x)\n", (int)i_heapType, size);
+        return;
+    }
+#endif
+
     if (i_heapType == 4) {
         tmpWork = new char[size];
         JUT_ASSERT(669, tmpWork != NULL);
@@ -358,6 +367,12 @@ void* daPy_anmHeap_c::loadDataDemoRID(u16 i_resID, u16 i_arcNo) {
 }
 
 JKRHeap* daPy_anmHeap_c::setAnimeHeap() {
+    if (mAnimeHeap == NULL) {
+#ifdef TARGET_PC
+        fprintf(stderr, "[ALINK] setAnimeHeap: mAnimeHeap is NULL (bufSize=0x%x)\n", mBufferSize);
+#endif
+        return NULL;
+    }
     mAnimeHeap->freeAll();
     return mDoExt_setCurrentHeap(mAnimeHeap);
 }
@@ -427,7 +442,9 @@ f32 daPy_py_c::getAttentionOffsetY() {
 }
 
 int daPy_py_c::checkNowWolfEyeUp() {
-    return daAlink_getAlinkActorClass()->checkWolfEyeUp();
+    daAlink_c* alink = daAlink_getAlinkActorClass();
+    if (alink == NULL) return 0;
+    return alink->checkWolfEyeUp();
 }
 
 void daAlink_c::startRestartRoomFromOut(int i_dmgAmount, u32 i_mode, int param_2) {

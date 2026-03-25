@@ -339,6 +339,15 @@ static const char* myGetHeapTypeByString(JKRHeap* p_heap) {
 
 static void myMemoryErrorRoutine(void* p_heap, u32 size, int alignment) {
     JKRHeap* heap = (JKRHeap*)p_heap;
+#ifdef TARGET_PC
+    static int s_pc_heap_err_log = 0;
+    if (s_pc_heap_err_log < 12) {
+        s_pc_heap_err_log++;
+        fprintf(stderr, "[HEAP] alloc fail size=%u align=%d heap=%p type=%08x free=%u total=%u\n",
+                size, alignment, p_heap, heap ? heap->getHeapType() : 0,
+                heap ? heap->getFreeSize() : 0, heap ? heap->getTotalFreeSize() : 0);
+    }
+#endif
 
     BOOL notSolidHeap = true;
     if (heap->getHeapType() == 'SLID') {
@@ -346,10 +355,12 @@ static void myMemoryErrorRoutine(void* p_heap, u32 size, int alignment) {
     }
 
     if (notSolidHeap) {
+#ifndef TARGET_PC
         // "Error: Can't allocate memory %d(0x%x)Bytes, %d Byte Alignment from %08x\n"
         OSReport_Error(
             "エラー: メモリを確保できません %d(0x%x)バイト、 %d バイトアライメント from %08x\n",
             size, size, alignment, p_heap);
+#endif
     }
 
     union {
@@ -358,10 +369,12 @@ static void myMemoryErrorRoutine(void* p_heap, u32 size, int alignment) {
     } heapType;
     heapType.word = heap->getHeapType();
     if (notSolidHeap) {
+#ifndef TARGET_PC
         OSReport_Error(
             "FreeSize=%08x TotalFreeSize=%08x HeapType=%08x(%c%c%c%c) HeapSize=%08x %s\n",
             heap->getFreeSize(), heap->getTotalFreeSize(), heapType.word, heapType.c[0], heapType.c[1],
             heapType.c[2], heapType.c[3], heap->getHeapSize(), myGetHeapTypeByString(heap));
+#endif
     }
 
     if (heapErrors == 0) {
@@ -810,9 +823,9 @@ int mDoMch_Create() {
      * Also reserve enough arena for these larger heaps by reducing sysHeapSize. */
     /* 64-bit: pointers are 8 bytes instead of 4, CMemBlock headers are 24 bytes
      * instead of 16, and struct padding is larger. Scale all heaps generously. */
-    archiveHeapSize *= 8;
-    gameHeapSize *= 8;
-    j2dHeapSize *= 8;
+    archiveHeapSize *= 12;
+    gameHeapSize *= 12;
+    j2dHeapSize *= 12;
     /* Ensure arena has enough room: reduce the system heap to make space.
      * arenaSize becomes the system heap; the root heap gets totalArena,
      * and sub-heaps + system heap must fit within it. */
