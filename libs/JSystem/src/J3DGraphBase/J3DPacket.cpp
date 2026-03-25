@@ -5,10 +5,17 @@
 #include "JSystem/J3DGraphBase/J3DDrawBuffer.h"
 #include "JSystem/J3DGraphBase/J3DMaterial.h"
 #include "JSystem/J3DGraphBase/J3DShapeMtx.h"
+#include "JSystem/J3DGraphBase/J3DMatBlock.h"
+#include "JSystem/J3DGraphBase/J3DTexture.h"
 #include "JSystem/JKernel/JKRHeap.h"
 #include <os.h>
 #include <cstring>
+#include <cstdlib>
 #include "global.h"
+#ifdef TARGET_PC
+extern int g_pc_verbose;
+extern "C" u32 VIGetRetraceCount(void);
+#endif
 
 J3DError J3DDisplayListObj::newDisplayList(u32 maxSize) {
     mMaxSize = ALIGN_NEXT(maxSize, 0x20);
@@ -207,20 +214,163 @@ bool J3DMatPacket::isSame(J3DMatPacket* pOther) const {
 }
 
 void J3DMatPacket::draw() {
-    mpMaterial->load();
-    callDL();
+#ifdef TARGET_PC
+    static int s_matpkt_draw_log = 0;
+    static int s_matpkt_late_log = 0;
+    u32 frame = VIGetRetraceCount();
+    if (g_pc_verbose && (s_matpkt_draw_log < 120 || (frame > 560 && s_matpkt_late_log < 160))) {
+        fprintf(stderr,
+                "[J3D-MATPKT] frame=%u draw pkt=%p locked=%d mat=%p shared=%p tev=%p idx=%d\n",
+                frame,
+                (void*)this, isLocked() ? 1 : 0, (void*)mpMaterial,
+                mpMaterial ? (void*)mpMaterial->getSharedDisplayListObj() : NULL,
+                mpMaterial ? (void*)mpMaterial->getTevBlock() : NULL,
+                mpMaterial ? mpMaterial->getIndex() : -1);
+        fflush(stderr);
+        if (s_matpkt_draw_log < 120) s_matpkt_draw_log++;
+        if (frame > 560 && s_matpkt_late_log < 160) s_matpkt_late_log++;
+    }
+#endif
+#ifdef TARGET_PC
+    const char* skipMatDlEnv = std::getenv("TP_SKIP_MAT_DL");
+    const bool skipMatDl = (skipMatDlEnv != NULL) && (std::atoi(skipMatDlEnv) != 0);
+    const char* useSharedMatDlEnv = std::getenv("TP_USE_SHARED_MAT_DL");
+    const bool useSharedMatDl = (useSharedMatDlEnv == NULL) || (std::atoi(useSharedMatDlEnv) != 0);
+    if (!skipMatDl) {
+        if (useSharedMatDl && mpMaterial->getSharedDisplayListObj() != NULL) {
+            mpMaterial->loadSharedDL();
+        } else {
+            mpMaterial->load();
+        }
+        if (getDisplayListObj() != NULL) {
+            callDL();
+        }
+        /* On PC, the shared DL contains GC physical addresses for textures
+         * which don't work. Explicitly load textures via GXLoadTexObj. */
+        {
+            /* Prefer packet-local texture table; j3dSys texture can be stale
+             * when multiple models draw in the same frame. */
+            J3DTexture* tex = (mpTexture != NULL) ? mpTexture : j3dSys.getTexture();
+            if (tex != NULL) {
+                j3dSys.setTexture(tex);
+            }
+            J3DTevBlock* tevBlock = mpMaterial->getTevBlock();
+            static int s_texload_log = 0;
+            if (g_pc_verbose && s_texload_log < 10) {
+                fprintf(stderr, "[J3D-TEX] mat=%p tex=%p tevBlock=%p\n",
+                        (void*)mpMaterial, (void*)tex, (void*)tevBlock);
+                if (tevBlock) {
+                    fprintf(stderr, "[J3D-TEX]   stages=%d texNo[0..3]=%d,%d,%d,%d\n",
+                            tevBlock->getTevStageNum(),
+                            tevBlock->getTexNo(0), tevBlock->getTexNo(1),
+                            tevBlock->getTexNo(2), tevBlock->getTexNo(3));
+                }
+                if (tex) {
+                    fprintf(stderr, "[J3D-TEX]   numTex=%d\n", tex->getNum());
+                }
+                s_texload_log++;
+                fflush(stderr);
+            }
+            if (tex != NULL && tevBlock != NULL) {
+                int numStages = tevBlock->getTevStageNum();
+                if (numStages > 8) numStages = 8;
+                bool anyTexLoaded = false;
+                for (int i = 0; i < numStages; i++) {
+                    u16 texNoRaw = tevBlock->getTexNo(i);
+                    u16 texNo = texNoRaw;
+                    if (texNo == 0xFFFF && tex->getNum() > 0) {
+                        texNo = (i < (int)tex->getNum()) ? (u16)i : 0;
+                        if (g_pc_verbose) {
+                            static int s_texno_missing_log = 0;
+                            if (s_texno_missing_log++ < 40) {
+                                fprintf(stderr,
+                                        "[J3D-TEX] substitute missing texNo stage=%d -> %u numTex=%u\n",
+                                        i, texNo, tex->getNum());
+                            }
+                        }
+                    }
+                    if (texNo != 0xFFFF && texNo >= tex->getNum()) {
+                        u16 swapped = (u16)((texNoRaw >> 8) | (texNoRaw << 8));
+                        if (swapped < tex->getNum()) {
+                            texNo = swapped;
+                            if (g_pc_verbose) {
+                                static int s_texno_fix_log = 0;
+                                if (s_texno_fix_log++ < 40) {
+                                    fprintf(stderr,
+                                            "[J3D-TEX] fix texNo stage=%d raw=%u swapped=%u numTex=%u\n",
+                                            i, texNoRaw, texNo, tex->getNum());
+                                }
+                            }
+                        }
+                    }
+                    if (texNo != 0xFFFF && texNo < tex->getNum()) {
+                        tex->loadGX(texNo, (GXTexMapID)i);
+                        anyTexLoaded = true;
+                    }
+                }
+                /* Fallback: if no textures were loaded from TevBlock (byte-swap
+                 * corruption makes all texNo = 0xFFFF), load textures and fix
+                 * the TEV stage state so they actually get sampled. */
+                if (!anyTexLoaded && tex->getNum() > 0) {
+                    static int s_fallback_log = 0;
+                    if (s_fallback_log++ < 5) {
+                        fprintf(stderr, "[J3D-TEX] FALLBACK: loading %d textures (model has %d)\n",
+                                numStages < (int)tex->getNum() ? numStages : (int)tex->getNum(),
+                                (int)tex->getNum());
+                        fflush(stderr);
+                    }
+                    /* Just load texture 0 to map 0 — the simple shader checks
+                     * g_gx.gl_textures[0] directly regardless of TEV_ORDER enable. */
+                    tex->loadGX(0, (GXTexMapID)0);
+                }
+            }
+        }
+    } else {
+        /* Keep startup scene rendering alive while MAT3/TEV reconstruction is in progress. */
+        GXSetNumChans(1);
+        GXSetNumTexGens(1);
+        GXSetNumTevStages(1);
+    }
+#else
+    if (mpMaterial->getSharedDisplayListObj() != NULL) {
+        mpMaterial->loadSharedDL();
+    } else {
+        mpMaterial->load();
+    }
+    if (getDisplayListObj() != NULL) {
+        callDL();
+    }
+#endif
 
     J3DShapePacket* packet = getShapePacket();
+#ifdef TARGET_PC
+    if (packet == NULL || packet->getShape() == NULL) {
+        static int s_noshape = 0;
+        if (s_noshape++ < 5) fprintf(stderr, "[J3D-MATPKT] no shape packet or shape!\n");
+        return;
+    }
+#endif
     packet->getShape()->loadPreDrawSetting();
 
+    int shapeCount = 0;
     while (packet != NULL) {
         if (packet->getDisplayListObj() != NULL) {
             packet->getDisplayListObj()->callDL();
         }
 
         packet->drawFast();
+        shapeCount++;
         packet = (J3DShapePacket*)packet->getNextPacket();
     }
+#ifdef TARGET_PC
+    {
+        static int s_matdraw = 0;
+        if (s_matdraw < 10) {
+            fprintf(stderr, "[J3D-MATPKT] drew %d shapes\n", shapeCount);
+            s_matdraw++;
+        }
+    }
+#endif
 
     J3DShape::resetVcdVatCache();
 }
@@ -348,6 +498,14 @@ void J3DShapePacket::prepareDraw() const {
 }
 
 void J3DShapePacket::draw() {
+#ifdef TARGET_PC
+    static int s_shp_draw = 0;
+    if (s_shp_draw < 10) {
+        fprintf(stderr, "[J3D-SHAPE] draw: hidden=%d shape=%p dlObj=%p flags=0x%x\n",
+                checkFlag(J3DShpFlag_Hidden), (void*)mpShape, (void*)mpDisplayListObj, mFlags);
+        s_shp_draw++;
+    }
+#endif
     if (!checkFlag(J3DShpFlag_Hidden) && mpShape != NULL) {
         prepareDraw();
 
@@ -362,6 +520,11 @@ void J3DShapePacket::draw() {
             mpDisplayListObj->callDL();
         }
 
+#ifdef TARGET_PC
+        if (s_shp_draw <= 10) {
+            fprintf(stderr, "[J3D-SHAPE] calling shape->draw() shape=%p\n", (void*)mpShape);
+        }
+#endif
         mpShape->draw();
     }
 }

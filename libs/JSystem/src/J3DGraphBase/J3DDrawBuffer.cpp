@@ -227,6 +227,22 @@ void J3DDrawBuffer::drawHead() const {
     u32 size = mEntryTableSize;
     J3DPacket** buf = mpBuffer;
 
+#ifdef TARGET_PC
+    static int s_head_log = 0;
+    int pktCount = 0;
+    if (s_head_log < 10) {
+        for (u32 i = 0; i < size; i++) {
+            for (J3DPacket* pkt = buf[i]; pkt != NULL; pkt = pkt->getNextPacket())
+                pktCount++;
+        }
+        if (pktCount > 0) {
+            fprintf(stderr, "[J3D-DRAW] drawHead: entries=%d packets=%d mode=%d\n",
+                    size, pktCount, mDrawMode);
+            s_head_log++;
+        }
+    }
+#endif
+
     for (u32 i = 0; i < size; i++) {
         for (J3DPacket* packet = buf[i]; packet != NULL; packet = packet->getNextPacket()) {
             packet->draw();

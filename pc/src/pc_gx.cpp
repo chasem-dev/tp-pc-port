@@ -827,6 +827,40 @@ void pc_gx_init(void) {
             glDisable(GL_BLEND);
             WARMUP_DRAW(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_SHORT, 0);
 
+            /* State combo 10: no depth, cull on, scissor on, no blend (crash trigger) */
+            glDisable(GL_DEPTH_TEST);
+            glDepthMask(GL_FALSE);
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_BACK);
+            glEnable(GL_SCISSOR_TEST);
+            glScissor(0, 0, g_pc_window_w, g_pc_window_h);
+            WARMUP_DRAW(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_SHORT, 0);
+
+            /* State combo 11: same + blend on */
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            WARMUP_DRAW(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_SHORT, 0);
+
+            /* State combo 12: no cull, no depth, scissor, blend (second crash state) */
+            glDisable(GL_CULL_FACE);
+            WARMUP_DRAW(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_SHORT, 0);
+
+            /* State combo 13: same combos with GL_POINTS (another crash prim) */
+            WARMUP_DRAW(GL_POINTS, 4, GL_UNSIGNED_SHORT, 0);
+            glDisable(GL_BLEND);
+            WARMUP_DRAW(GL_POINTS, 4, GL_UNSIGNED_SHORT, 0);
+            glEnable(GL_CULL_FACE);
+            WARMUP_DRAW(GL_POINTS, 4, GL_UNSIGNED_SHORT, 0);
+
+            /* State combo 14-15: GL_TRIANGLES with all combos */
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_gx.ebo);
+            glDisable(GL_CULL_FACE);
+            glDisable(GL_DEPTH_TEST);
+            glEnable(GL_SCISSOR_TEST);
+            WARMUP_DRAW(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+            glEnable(GL_BLEND);
+            WARMUP_DRAW(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+
             #undef WARMUP_DRAW
 
             /* Unbind texture */
@@ -1441,6 +1475,8 @@ static bool draw_boot_simple_quad(const PCGXVertex* verts, int count) {
     return true;
 }
 
+static int s_frame_draws_ok = 0, s_frame_draws_crash = 0, s_frame_draws_total = 0;
+static u32 s_last_frame_retrace = 0;
 void pc_gx_flush_vertices(void) {
     pc_platform_ensure_gl_context_current();
     int count = g_gx.current_vertex_idx;
@@ -1449,6 +1485,24 @@ void pc_gx_flush_vertices(void) {
         g_gx.current_vertex_idx = 0;
         g_gx.batch_pretransformed = 0;
         return;
+    }
+    /* Per-frame draw stats */
+    {
+        u32 r = VIGetRetraceCount();
+        if (r != s_last_frame_retrace) {
+            static int s_stat_log = 0;
+            if (s_stat_log < 10 && s_frame_draws_total > 2) {
+                fprintf(stderr, "[DRAW-STATS] frame %u: %d ok, %d crashed, %d total (pretrans=%d)\n",
+                        s_last_frame_retrace, s_frame_draws_ok, s_frame_draws_crash, s_frame_draws_total,
+                        g_gx.batch_pretransformed);
+                s_stat_log++;
+            }
+            s_frame_draws_ok = 0;
+            s_frame_draws_crash = 0;
+            s_frame_draws_total = 0;
+            s_last_frame_retrace = r;
+        }
+        s_frame_draws_total++;
     }
     s_draw_call_count++;
 
@@ -1682,6 +1736,33 @@ void pc_gx_flush_vertices(void) {
         jmp_buf drawBuf;
         jmp_buf* prevDrawBuf = pc_crash_get_jmpbuf();
         pc_crash_set_jmpbuf(&drawBuf);
+        /* Log GL state before first few draws to find Metal crash trigger */
+        {
+            static int s_pre_draw_log = 0;
+            if (s_pre_draw_log < 3 && g_gx.batch_pretransformed) {
+                GLint blend_en, depth_en, cull_en, scissor_en;
+                GLint blend_src, blend_dst, depth_func;
+                GLint viewport[4], scissor[4];
+                glGetIntegerv(GL_BLEND, &blend_en);
+                glGetIntegerv(GL_DEPTH_TEST, &depth_en);
+                glGetIntegerv(GL_CULL_FACE, &cull_en);
+                glGetIntegerv(GL_SCISSOR_TEST, &scissor_en);
+                glGetIntegerv(GL_BLEND_SRC_RGB, &blend_src);
+                glGetIntegerv(GL_BLEND_DST_RGB, &blend_dst);
+                glGetIntegerv(GL_DEPTH_FUNC, &depth_func);
+                glGetIntegerv(GL_VIEWPORT, viewport);
+                glGetIntegerv(GL_SCISSOR_BOX, scissor);
+                fprintf(stderr, "[PRE-DRAW] pretrans=%d prim=%d verts=%d shader=%u simple=%d\n",
+                        g_gx.batch_pretransformed, g_gx.current_primitive, count,
+                        shader, pc_gx_tev_is_simple_shader(shader));
+                fprintf(stderr, "[PRE-DRAW]   blend=%d(src=%x dst=%x) depth=%d(func=%x) cull=%d scissor=%d\n",
+                        blend_en, blend_src, blend_dst, depth_en, depth_func, cull_en, scissor_en);
+                fprintf(stderr, "[PRE-DRAW]   viewport=(%d,%d,%d,%d) scissor=(%d,%d,%d,%d)\n",
+                        viewport[0], viewport[1], viewport[2], viewport[3],
+                        scissor[0], scissor[1], scissor[2], scissor[3]);
+                s_pre_draw_log++;
+            }
+        }
         if (setjmp(drawBuf) == 0) {
             if (g_gx.current_primitive == GX_QUADS) {
                 int num_quads = count / 4;
@@ -1692,7 +1773,9 @@ void pc_gx_flush_vertices(void) {
                 glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_linear_ebo);
                 glDrawElements(gl_prim, draw_count, GL_UNSIGNED_SHORT, 0);
             }
+            s_frame_draws_ok++;
         } else {
+            s_frame_draws_crash++;
             static int s_draw_crash_count = 0;
             s_draw_crash_count++;
             if (s_draw_crash_count <= 10) {

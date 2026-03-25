@@ -1806,6 +1806,15 @@ void dDlst_list_c::entryZSortXluDrawList(J3DDrawBuffer* param_0, J3DPacket* para
 void dDlst_list_c::drawOpaDrawList(J3DDrawBuffer* pDrawBuf) {
     J3DShape::resetVcdVatCache();
     j3dSys.setDrawModeOpaTexEdge();
+#ifdef TARGET_PC
+    {
+        static int s_opa_log = 0;
+        if (s_opa_log < 20 && pDrawBuf && pDrawBuf->getEntryTableSize() > 0) {
+            fprintf(stderr, "[DRAWLIST] opaDrawList: entries=%d\n", pDrawBuf->getEntryTableSize());
+            s_opa_log++;
+        }
+    }
+#endif
     pDrawBuf->draw();
 }
 
