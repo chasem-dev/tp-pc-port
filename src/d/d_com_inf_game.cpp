@@ -1367,6 +1367,10 @@ int dComIfG_resDelete(request_of_phase_process_class* i_phase, char const* i_res
 }
 
 s8 dComIfGp_getReverb(int i_roomNo) {
+#ifdef TARGET_PC
+    roomRead_class* room = dComIfGp_getStageRoom();
+    if (room == NULL) return 0;
+#endif
     return dStage_roomRead_dt_c_GetReverbStage(*dComIfGp_getStageRoom(), i_roomNo);
 }
 

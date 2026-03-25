@@ -159,6 +159,14 @@ void cBgS_ChkElm::Release() {
 static int l_SetCounter;
 
 bool cBgS::Regist(dBgW_Base* pbgw, fpc_ProcID actor_id, void* pactor) {
+#ifdef TARGET_PC
+    static int s_regist_log = 0;
+    if (s_regist_log < 5) {
+        fprintf(stderr, "[BGS] Regist: pbgw=%p sizeof(ChkElm)=%zu sizeof(cBgS)=%zu\n",
+                (void*)pbgw, sizeof(cBgS_ChkElm), sizeof(cBgS));
+        s_regist_log++;
+    }
+#endif
     if (pbgw == NULL) {
         // "cBgS::Regist() data is Null"
         OS_REPORT_ERROR("cBgS::Regist() データがNull\n");
@@ -1486,6 +1494,24 @@ f32 dBgS::RoofChk(dBgS_RoofChk* proof) {
     proof->Init();
 
     cBgS_ChkElm* elm = m_chk_element;
+#ifdef TARGET_PC
+    {
+        static int s_roof_dump = 0;
+        if (s_roof_dump < 2) {
+            int usedCount = 0;
+            for (int j = 0; j < 0x100; j++) {
+                cBgS_ChkElm* e = &m_chk_element[j];
+                if (e->ChkUsed()) {
+                    fprintf(stderr, "[BGS-ROOF] elm[%d]: used=%d ptr=%p valid=%d\n",
+                            j, e->ChkUsed(), (void*)e->m_bgw_base_ptr, BGW_PTR_OK(e->m_bgw_base_ptr));
+                    usedCount++;
+                }
+            }
+            fprintf(stderr, "[BGS-ROOF] total used=%d sizeof(ChkElm)=%zu\n", usedCount, sizeof(cBgS_ChkElm));
+            s_roof_dump++;
+        }
+    }
+#endif
     for (int i = 0; i < 0x100; i++) {
         if (elm->ChkUsed() && BGW_PTR_OK(elm->m_bgw_base_ptr) && !elm->m_bgw_base_ptr->ChkNotReady()) {
             if (!proof->ChkSameActorPid(elm->m_actor_id)) {
