@@ -7,16 +7,35 @@
 #include "global.h"
 #include <cstring>
 
+#ifdef TARGET_PC
+/* On PC (little-endian), *(u32*)&GXColor produces ABGR instead of RGBA.
+ * XF color registers expect big-endian RGBA packed values.
+ * Manually pack from struct fields to get correct byte order. */
+static inline u32 pc_pack_gxcolor(const J3DGXColor* c) {
+    return ((u32)c->r << 24) | ((u32)c->g << 16) | ((u32)c->b << 8) | (u32)c->a;
+}
+#endif
+
 inline void loadMatColors(const J3DGXColor* color) {
     J3DGDWriteXFCmdHdr(0x100C, 2);
+#ifdef TARGET_PC
+    J3DGDWrite_u32(pc_pack_gxcolor(&color[0]));
+    J3DGDWrite_u32(pc_pack_gxcolor(&color[1]));
+#else
     J3DGDWrite_u32(*(u32*)color);
     J3DGDWrite_u32(*(u32*)(color + 1));
+#endif
 }
 
 inline void loadAmbColors(const J3DGXColor* color) {
     J3DGDWriteXFCmdHdr(0x100A, 2);
+#ifdef TARGET_PC
+    J3DGDWrite_u32(pc_pack_gxcolor(&color[0]));
+    J3DGDWrite_u32(pc_pack_gxcolor(&color[1]));
+#else
     J3DGDWrite_u32(*(u32*)color);
     J3DGDWrite_u32(*(u32*)(color + 1));
+#endif
 }
 
 inline void loadTexCoordScale(GXTexCoordID coord, const J3DTexCoordScaleInfo& info) {

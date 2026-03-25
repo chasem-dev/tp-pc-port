@@ -235,14 +235,21 @@ void J3DMatPacket::draw() {
     const char* skipMatDlEnv = std::getenv("TP_SKIP_MAT_DL");
     const bool skipMatDl = (skipMatDlEnv != NULL) && (std::atoi(skipMatDlEnv) != 0);
     const char* useSharedMatDlEnv = std::getenv("TP_USE_SHARED_MAT_DL");
-    const bool useSharedMatDl = (useSharedMatDlEnv == NULL) || (std::atoi(useSharedMatDlEnv) != 0);
+    /* Default to non-shared path on PC: the shared DLs from BMD files have
+     * byte-order issues that corrupt TEV combiner config, material/ambient colors,
+     * and alpha values. The non-shared path uses J3DMaterial::load() which writes
+     * fresh commands through the GD buffer with proper endian handling. */
+    const bool useSharedMatDl = (useSharedMatDlEnv != NULL) && (std::atoi(useSharedMatDlEnv) != 0);
     if (!skipMatDl) {
         if (useSharedMatDl && mpMaterial->getSharedDisplayListObj() != NULL) {
             mpMaterial->loadSharedDL();
         } else {
             mpMaterial->load();
         }
-        if (getDisplayListObj() != NULL) {
+        /* Skip packet diff DL on PC when using non-shared path — the diff DL
+         * was built when __GDCurrentDL was NULL, so it contains garbage data
+         * that overwrites the correct TEV state from J3DMaterial::load(). */
+        if (useSharedMatDl && getDisplayListObj() != NULL) {
             callDL();
         }
         /* On PC, the shared DL contains GC physical addresses for textures

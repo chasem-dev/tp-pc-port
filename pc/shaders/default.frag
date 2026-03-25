@@ -274,7 +274,9 @@ void main() {
     if (u_num_chans == 0) {
         rasColor = vec4(1.0);
     } else {
-        vec3 matC = (u_chan_mat_src != 0) ? v_color.rgb : u_mat_color.rgb;
+        /* Force material from register (white) — vertex colors are broken
+         * (zero) due to indexed color array lookup issues on PC */
+        vec3 matC = u_mat_color.rgb;
         vec3 ambC = (u_chan_amb_src != 0) ? v_color.rgb : u_amb_color.rgb;
         if (u_lighting_enabled != 0) {
             vec3 lightAccum = ambC;
@@ -336,6 +338,10 @@ void main() {
         writeToReg(result, u_tev_out[s], prev, r0, r1, r2);
     }
 
+
+    /* Force alpha to 1.0 before alpha test — shared DL endian byte-swap
+     * puts R channel value in alpha position, causing near-zero alpha */
+    prev.a = 1.0;
 
     /* Alpha compare */
     if (u_alpha_comp0 != 7 || u_alpha_comp1 != 7) {

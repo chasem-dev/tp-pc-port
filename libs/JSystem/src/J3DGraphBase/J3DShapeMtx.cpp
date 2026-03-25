@@ -6,6 +6,9 @@
 #include "JSystem/J3DGraphBase/J3DMatBlock.h"
 #include "JSystem/J3DGraphBase/J3DSys.h"
 #include "JSystem/J3DGraphBase/J3DTexture.h"
+#ifdef TARGET_PC
+#include "pc_gx_internal.h"
+#endif
 
 u16 J3DShapeMtx::sMtxLoadCache[10];
 
@@ -23,9 +26,47 @@ void J3DShapeMtx::resetMtxLoadCache() {
 }
 
 void J3DShapeMtx::loadMtxIndx_PNGP(int slot, u16 indx) const {
-    // J3DFifoLoadPosMtxIndx(indx, slot * 3);  // matches debug, but not retail 
+#ifdef TARGET_PC
+    /* On PC, J3DFifoLoadIndx is a no-op (GXCmd writes go nowhere).
+     * Emulate the indexed XF load: read the matrix from the vertex array
+     * (set via GXSetArray for PNMTXIDX) at the given index.
+     * The matrix array contains pre-computed view*model matrices from J3DModel. */
+    extern PCGXState g_gx;
+    const void* mtx_array = g_gx.array_base[GX_VA_PNMTXIDX];
+    u8 mtx_stride = g_gx.array_stride[GX_VA_PNMTXIDX];
+    if (mtx_array != NULL && mtx_stride > 0) {
+        const u8* mtx_ptr = (const u8*)mtx_array + (u32)indx * mtx_stride;
+        J3DFifoLoadPosMtxImm((MtxP)mtx_ptr, slot * 3);
+        J3DFifoLoadNrmMtxImm((MtxP)mtx_ptr, slot * 3);
+    } else {
+        /* Fallback to packet base matrix if array not set */
+        J3DFifoLoadPosMtxImm(*j3dSys.getShapePacket()->getBaseMtxPtr(), slot * 3);
+        J3DFifoLoadNrmMtxImm(*j3dSys.getShapePacket()->getBaseMtxPtr(), slot * 3);
+    }
+#else
+    // J3DFifoLoadPosMtxIndx(indx, slot * 3);  // matches debug, but not retail
     J3DFifoLoadIndx(GX_LOAD_INDX_A, indx, 0xB000 | ((u16)(slot * 0x0C)));
     J3DFifoLoadNrmMtxIndx3x3(indx, slot * 3);
+#endif
+}
+
+void J3DShapeMtx::loadMtxIndx_NCPU(int slot, u16 indx) const {
+#ifdef TARGET_PC
+    extern PCGXState g_gx;
+    const void* mtx_array = g_gx.array_base[GX_VA_PNMTXIDX];
+    u8 mtx_stride = g_gx.array_stride[GX_VA_PNMTXIDX];
+    if (mtx_array != NULL && mtx_stride > 0) {
+        const u8* mtx_ptr = (const u8*)mtx_array + (u32)indx * mtx_stride;
+        J3DFifoLoadPosMtxImm((MtxP)mtx_ptr, slot * 3);
+        J3DFifoLoadNrmMtxImm((MtxP)mtx_ptr, slot * 3);
+    } else {
+        j3dSys.loadPosMtxIndx(slot, indx);
+        J3DFifoLoadNrmMtxImm(*j3dSys.getShapePacket()->getBaseMtxPtr(), slot * 3);
+    }
+#else
+    j3dSys.loadPosMtxIndx(slot, indx);
+    J3DFifoLoadNrmMtxImm(*j3dSys.getShapePacket()->getBaseMtxPtr(), slot * 3);
+#endif
 }
 
 void J3DShapeMtx::loadMtxIndx_PCPU(int slot, u16 indx) const {
@@ -33,10 +74,7 @@ void J3DShapeMtx::loadMtxIndx_PCPU(int slot, u16 indx) const {
     j3dSys.loadNrmMtxIndx(slot, indx);
 }
 
-void J3DShapeMtx::loadMtxIndx_NCPU(int slot, u16 indx) const {
-    j3dSys.loadPosMtxIndx(slot, indx);
-    J3DFifoLoadNrmMtxImm(*j3dSys.getShapePacket()->getBaseMtxPtr(), slot * 3);
-}
+/* Original NCPU moved above with PC fix */
 
 void J3DShapeMtx::loadMtxIndx_PNCPU(int slot, u16 indx) const {
     J3DFifoLoadPosMtxImm(*j3dSys.getShapePacket()->getBaseMtxPtr(), slot * 3);

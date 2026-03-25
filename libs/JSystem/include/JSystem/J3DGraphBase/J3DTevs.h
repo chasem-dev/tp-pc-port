@@ -112,8 +112,18 @@ struct J3DTevStage {
     void setTexSel(u8 tex_sel) { mTevSwapModeInfo = (mTevSwapModeInfo & ~0xc) | (tex_sel << 2); }
 
     void load(u32 param_1) const {
+#ifdef TARGET_PC
+        /* On little-endian PC, *(u32*)&field puts the BP register byte at bits 7-0
+         * instead of 31-24. Manually pack bytes in big-endian order so the DL parser
+         * correctly identifies the register number. */
+        const u8* b0 = (const u8*)&field_0x0;
+        J3DGDWriteBPCmd(((u32)b0[0] << 24) | ((u32)b0[1] << 16) | ((u32)b0[2] << 8) | (u32)b0[3]);
+        const u8* b4 = (const u8*)&field_0x4;
+        J3DGDWriteBPCmd(((u32)b4[0] << 24) | ((u32)b4[1] << 16) | ((u32)b4[2] << 8) | (u32)b4[3]);
+#else
         J3DGDWriteBPCmd(*(u32*)&field_0x0);
         J3DGDWriteBPCmd(*(u32*)&field_0x4);
+#endif
     }
 
     J3DTevStage& operator=(const J3DTevStage& other) {

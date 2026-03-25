@@ -376,8 +376,19 @@ void J3DMaterial::load() {
         }
 #endif
 #ifdef TARGET_PC
-        /* Material blocks may have corrupt data from byte-swap issues.
-         * Wrap each load in crash protection to survive bad materials. */
+        /* On PC, J3D material blocks write GX commands via J3DGDWrite* to
+         * __GDCurrentDL. On GCN this points to the WGPIPE (hardware FIFO).
+         * On PC, __GDCurrentDL is normally NULL, so all GDWrite calls would
+         * crash. We set up a temporary buffer, let the blocks write into it,
+         * then flush it through GXCallDisplayList to apply the state. */
+        extern GDLObj* __GDCurrentDL;
+        static u8 s_mat_gd_buf[4096] __attribute__((aligned(32)));
+        GDLObj mat_gd;
+        GDLObj* prev_gd = __GDCurrentDL;
+
+        GDInitGDLObj(&mat_gd, s_mat_gd_buf, sizeof(s_mat_gd_buf));
+        __GDCurrentDL = &mat_gd;
+
         jmp_buf matBuf;
         jmp_buf* prevMatBuf = pc_crash_get_jmpbuf();
         pc_crash_set_jmpbuf(&matBuf);
@@ -393,6 +404,25 @@ void J3DMaterial::load() {
             J3DGDSetNumChans(mColorBlock->getColorChanNum());
             J3DGDSetNumTexGens(mTexGenBlock->getTexGenNum());
             loadNBTScale(*mTexGenBlock->getNBTScale());
+
+            /* Flush the accumulated GD commands through the DL parser */
+            u32 gd_size = GDGetCurrOffset();
+            if (gd_size > 0) {
+                static int s_mat_flush_log = 0;
+                if (s_mat_flush_log < 10) {
+                    fprintf(stderr, "[J3D-MAT] Flushing GD buf: %u bytes, tevStages=%u, chans=%u, texGens=%u, matIdx=%d\n",
+                            gd_size, mTevBlock->getTevStageNum(), mColorBlock->getColorChanNum(),
+                            mTexGenBlock->getTexGenNum(), mIndex);
+                    /* Print first 32 bytes of the GD buffer */
+                    fprintf(stderr, "[J3D-MAT] GD data:");
+                    for (u32 bi = 0; bi < gd_size && bi < 64; bi++) {
+                        fprintf(stderr, " %02x", s_mat_gd_buf[bi]);
+                    }
+                    fprintf(stderr, "\n");
+                    s_mat_flush_log++;
+                }
+                GXCallDisplayList(s_mat_gd_buf, gd_size);
+            }
         } else {
             static int s_matload_crash = 0;
             if (s_matload_crash++ < 5) {
@@ -405,6 +435,7 @@ void J3DMaterial::load() {
             GXSetNumTevStages(1);
         }
         pc_crash_set_jmpbuf(prevMatBuf);
+        __GDCurrentDL = prev_gd;
 #else
         mTevBlock->load();
         mIndBlock->load();

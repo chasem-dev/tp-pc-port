@@ -1415,6 +1415,32 @@ static void upload_uniforms(void) {
         if (g_gx.uloc.fog_end >= 0)   glUniform1f(g_gx.uloc.fog_end, g_gx.fog_end);
         if (g_gx.uloc.fog_color >= 0) glUniform4fv(g_gx.uloc.fog_color, 1, g_gx.fog_color);
     }
+
+    /* Debug: log GX state for first few draw calls of scene frames */
+    {
+        static int s_uniform_log = 0;
+        static int s_prev_tev = -1;
+        u32 r = VIGetRetraceCount();
+        /* Log when TEV stage count changes or first few draws */
+        if (r > 500 && (s_uniform_log < 15 || (num_tev != s_prev_tev && s_uniform_log < 50))) {
+            const PCGXTevStage* s0 = &tev[0];
+            fprintf(stderr, "[GX-STATE] tev=%d chans=%d lit=%d matSrc=%d ambSrc=%d "
+                    "mat=(%.2f,%.2f,%.2f) amb=(%.2f,%.2f,%.2f) "
+                    "s0=[cIn=%d,%d,%d,%d aIn=%d,%d,%d,%d tm=%d tc=%d] "
+                    "fog=%d tex0=%u lmask=0x%x prev=(%.2f,%.2f,%.2f)\n",
+                    num_tev, num_ch, g_gx.chan_ctrl_enable[0],
+                    g_gx.chan_ctrl_mat_src[0], g_gx.chan_ctrl_amb_src[0],
+                    g_gx.chan_mat_color[0][0], g_gx.chan_mat_color[0][1], g_gx.chan_mat_color[0][2],
+                    g_gx.chan_amb_color[0][0], g_gx.chan_amb_color[0][1], g_gx.chan_amb_color[0][2],
+                    s0->color_a, s0->color_b, s0->color_c, s0->color_d,
+                    s0->alpha_a, s0->alpha_b, s0->alpha_c, s0->alpha_d,
+                    s0->tex_map, s0->tex_coord,
+                    g_gx.fog_type, g_gx.gl_textures[0], g_gx.chan_ctrl_light_mask[0],
+                    g_gx.tev_colors[0][0], g_gx.tev_colors[0][1], g_gx.tev_colors[0][2]);
+            s_prev_tev = num_tev;
+            s_uniform_log++;
+        }
+    }
 }
 
 /* ============================================================
@@ -2097,7 +2123,12 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
 
     const u8* p = (const u8*)list;
     u8* swapped_words_buf = NULL;
-    if (nbytes >= 8 && (nbytes % 4) == 0 &&
+    /* DISABLED: The byte-swap heuristic corrupts display list data more than it
+     * helps. The J3D GD buffer writes are in correct big-endian format via
+     * J3DGDWrite_u32 (byte-by-byte), and shape DLs from BMD files are also
+     * big-endian. The heuristic was swapping data that didn't need swapping,
+     * which caused TEV, color, and matrix registers to be misinterpreted. */
+    if (false && nbytes >= 8 && (nbytes % 4) == 0 &&
         p[0] == 0x00 && p[2] == 0x00 &&
         ((p[3] & 0x80) != 0 || p[3] == 0x61 || p[3] == 0x10 || p[3] == 0x08))
     {
@@ -2282,34 +2313,93 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
                     }
                     DIRTY(PC_GX_DIRTY_TEXGEN);
                 }
-            } else if (data_count == 1) {
-                /* Single XF register writes — material/lighting config from J3DGDWriteXFCmd */
-                u32 val = read_be32(p + 5);
-                switch (xf_addr) {
-                case 0x1009: /* XF_NUMCHANS */
-                    g_gx.num_chans = val & 0x3;
-                    DIRTY(PC_GX_DIRTY_LIGHTING);
-                    break;
-                case 0x100E:   /* XF_COLOR0CNTRL */
-                case 0x100F:   /* XF_COLOR1CNTRL */
-                case 0x1010:   /* XF_ALPHA0CNTRL */
-                case 0x1011: { /* XF_ALPHA1CNTRL */
-                    int idx = xf_addr - 0x100E; /* 0..3 maps to chan ctrl indices */
-                    if (idx >= 0 && idx < 4) {
-                        g_gx.chan_ctrl_enable[idx] = (val >> 1) & 1;
-                        g_gx.chan_ctrl_amb_src[idx] = val & 1;
-                        g_gx.chan_ctrl_mat_src[idx] = val & 1;
-                        g_gx.chan_ctrl_light_mask[idx] = ((val >> 2) & 0xF) | (((val >> 11) & 0xF) << 4);
+            } else {
+                /* Parse ALL XF register writes by iterating over each register in the batch.
+                 * Handles single writes (data_count=1) and multi-register writes like:
+                 *   - loadMatColors: XF 0x100C, 2 regs (mat color 0-1)
+                 *   - loadAmbColors: XF 0x100A, 2 regs (amb color 0-1)
+                 *   - channel control: XF 0x100E, 4 regs (color0/1, alpha0/1 ctrl)
+                 */
+                const u8* d = p + 5;
+                for (u32 ri = 0; ri < data_count && ri < 16; ri++) {
+                    u32 reg_addr = xf_addr + ri;
+                    u32 val = read_be32(d + ri * 4);
+                    switch (reg_addr) {
+                    case 0x1009: /* XF_NUMCHANS */
+                        g_gx.num_chans = val & 0x3;
                         DIRTY(PC_GX_DIRTY_LIGHTING);
+                        break;
+                    case 0x100A:   /* XF_AMBCOLOR0 */
+                    case 0x100B: { /* XF_AMBCOLOR1 */
+                        int ci = reg_addr - 0x100A; /* 0 or 1 */
+                        g_gx.chan_amb_color[ci][0] = ((val >> 24) & 0xFF) / 255.0f; /* R */
+                        g_gx.chan_amb_color[ci][1] = ((val >> 16) & 0xFF) / 255.0f; /* G */
+                        g_gx.chan_amb_color[ci][2] = ((val >>  8) & 0xFF) / 255.0f; /* B */
+                        g_gx.chan_amb_color[ci][3] = ((val >>  0) & 0xFF) / 255.0f; /* A */
+                        DIRTY(PC_GX_DIRTY_LIGHTING);
+                        break;
                     }
-                    break;
-                }
-                case 0x103F: /* XF_NUMTEXGENS */
-                    g_gx.num_tex_gens = val & 0xF;
-                    DIRTY(PC_GX_DIRTY_TEXGEN);
-                    break;
-                default:
-                    break;
+                    case 0x100C:   /* XF_MATCOLOR0 */
+                    case 0x100D: { /* XF_MATCOLOR1 */
+                        int ci = reg_addr - 0x100C; /* 0 or 1 */
+                        g_gx.chan_mat_color[ci][0] = ((val >> 24) & 0xFF) / 255.0f; /* R */
+                        g_gx.chan_mat_color[ci][1] = ((val >> 16) & 0xFF) / 255.0f; /* G */
+                        g_gx.chan_mat_color[ci][2] = ((val >>  8) & 0xFF) / 255.0f; /* B */
+                        g_gx.chan_mat_color[ci][3] = ((val >>  0) & 0xFF) / 255.0f; /* A */
+                        DIRTY(PC_GX_DIRTY_LIGHTING);
+                        break;
+                    }
+                    case 0x100E:   /* XF_COLOR0CNTRL */
+                    case 0x100F:   /* XF_COLOR1CNTRL */
+                    case 0x1010:   /* XF_ALPHA0CNTRL */
+                    case 0x1011: { /* XF_ALPHA1CNTRL */
+                        int idx = reg_addr - 0x100E; /* 0..3 */
+                        if (idx >= 0 && idx < 4) {
+                            /* XF channel control register layout (GCN hardware):
+                             * bit 0: MatSrc (0=REG, 1=VTX)
+                             * bit 1: Enable (lighting)
+                             * bits 2-5: LightMask[3:0]
+                             * bit 6: AmbSrc (0=REG, 1=VTX)
+                             * bits 7-8: DiffuseFn
+                             * bit 9: AttnEnable
+                             * bit 10: AttnFn
+                             * bits 11-14: LightMask[7:4] */
+                            g_gx.chan_ctrl_mat_src[idx] = val & 1;          /* bit 0 = MatSrc */
+                            g_gx.chan_ctrl_enable[idx] = (val >> 1) & 1;    /* bit 1 = Enable */
+                            g_gx.chan_ctrl_amb_src[idx] = (val >> 6) & 1;   /* bit 6 = AmbSrc */
+                            g_gx.chan_ctrl_light_mask[idx] = ((val >> 2) & 0xF) | (((val >> 11) & 0xF) << 4);
+                            DIRTY(PC_GX_DIRTY_LIGHTING);
+                        }
+                        break;
+                    }
+                    case 0x103F: /* XF_NUMTEXGENS */
+                        g_gx.num_tex_gens = val & 0xF;
+                        DIRTY(PC_GX_DIRTY_TEXGEN);
+                        break;
+                    default:
+                        /* XF light registers: 8 lights × 16 regs each at 0x0600-0x067F
+                         * Light structure: [0-2]=unused, [3]=color, [4-6]=cos_atten,
+                         * [7-9]=dist_atten, [10-12]=position, [13-15]=direction */
+                        if (reg_addr >= 0x0600 && reg_addr < 0x0680) {
+                            int light_idx = (reg_addr - 0x0600) / 16;
+                            int light_reg = (reg_addr - 0x0600) % 16;
+                            if (light_idx >= 0 && light_idx < 8) {
+                                if (light_reg == 3) { /* color */
+                                    g_gx.lights[light_idx].color[0] = ((val >> 24) & 0xFF) / 255.0f;
+                                    g_gx.lights[light_idx].color[1] = ((val >> 16) & 0xFF) / 255.0f;
+                                    g_gx.lights[light_idx].color[2] = ((val >>  8) & 0xFF) / 255.0f;
+                                    g_gx.lights[light_idx].color[3] = ((val >>  0) & 0xFF) / 255.0f;
+                                    DIRTY(PC_GX_DIRTY_LIGHTING);
+                                } else if (light_reg >= 10 && light_reg <= 12) { /* position x/y/z */
+                                    union { u32 u; float f; } conv;
+                                    conv.u = val;
+                                    g_gx.lights[light_idx].pos[light_reg - 10] = conv.f;
+                                    DIRTY(PC_GX_DIRTY_LIGHTING);
+                                }
+                            }
+                        }
+                        break;
+                    }
                 }
             }
             p += 5 + data_bytes;
@@ -2317,10 +2407,15 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
             if (p + 5 > end) {
                 break;
             }
-            /* Indexed XF load command family occupies 0x20-0x3F and is always 5 bytes.
-             * We only need to consume it correctly to keep primitive decode aligned. */
+            /* Indexed XF load: bytes 1-2 = index, bytes 3-4 = ((size-1)<<12)|xf_addr.
+             * GX_LOAD_INDX_A (0x20) loads position matrices.
+             * Extract the XF address from the lower 12 bits of bytes 3-4.
+             * Convert XF address to GX matrix ID: xf_addr/4 gives the id
+             * that matches GXLoadPosMtxImm's id parameter (0, 3, 6, 9...). */
             if ((cmd & 0xF8) == 0x20) {
-                g_gx.current_mtx = read_be16(p + 3);
+                u16 packed = read_be16(p + 3);
+                u16 xf_addr = packed & 0x0FFF;  /* lower 12 bits = XF destination address */
+                g_gx.current_mtx = xf_addr / 4; /* convert to GX matrix ID (0, 3, 6...) */
             }
             p += 5;
         } else if (cmd == 0x61) {
@@ -2332,8 +2427,19 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
             u32 data = bp & 0x00FFFFFF;
             if (reg == 0x00) {
                 /* BP_GEN_MODE */
+                int old_tev = g_gx.num_tev_stages;
                 g_gx.num_tex_gens = data & 0x0F;
                 g_gx.num_tev_stages = ((data >> 10) & 0x0F) + 1;
+                {
+                    static int s_genmode_log = 0;
+                    u32 r = VIGetRetraceCount();
+                    if (r > 500 && s_genmode_log < 60 && old_tev != g_gx.num_tev_stages) {
+                        fprintf(stderr, "[BP-GENMODE] tev %d→%d texgens=%d list=%p size=%u first=%02x\n",
+                                old_tev, g_gx.num_tev_stages, g_gx.num_tex_gens,
+                                list, nbytes, ((const u8*)list)[0]);
+                        s_genmode_log++;
+                    }
+                }
                 int cm_hw = (data >> 14) & 0x03;
                 switch (cm_hw) {
                 case 0: g_gx.cull_mode = GX_CULL_NONE; break;
@@ -2380,6 +2486,19 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
                 /* TEV color/alpha combiner state */
                 int stage = (reg - 0xC0) / 2;
                 bool is_alpha = ((reg & 1) != 0);
+                {
+                    static int s_tev_comb_log = 0;
+                    u32 r = VIGetRetraceCount();
+                    if (r > 500 && s_tev_comb_log < 20) {
+                        fprintf(stderr, "[BP-TEV-COMB] reg=0x%02x stage=%d alpha=%d data=0x%06x d=%d c=%d b=%d a=%d\n",
+                                reg, stage, is_alpha, data,
+                                is_alpha ? ((data>>4)&7) : ((data>>0)&0xF),
+                                is_alpha ? ((data>>7)&7) : ((data>>4)&0xF),
+                                is_alpha ? ((data>>10)&7) : ((data>>8)&0xF),
+                                is_alpha ? ((data>>13)&7) : ((data>>12)&0xF));
+                        s_tev_comb_log++;
+                    }
+                }
                 if (stage >= 0 && stage < PC_GX_MAX_TEV_STAGES) {
                     if (!is_alpha) {
                         g_gx.tev_stages[stage].color_d = (data >> 0) & 0xF;
@@ -2730,7 +2849,9 @@ void GXSetScissorBoxOffset(s32 x_off, s32 y_off) {
 }
 
 /* TEV */
-void GXSetNumTevStages(u32 nStages) { g_gx.num_tev_stages = nStages; DIRTY(PC_GX_DIRTY_TEV_STAGES); }
+void GXSetNumTevStages(u32 nStages) {
+    g_gx.num_tev_stages = nStages; DIRTY(PC_GX_DIRTY_TEV_STAGES);
+}
 void GXSetTevOrder(u32 stage, u32 texCoord, u32 texMap, u32 colorChan) {
     if (stage < PC_GX_MAX_TEV_STAGES) {
         g_gx.tev_stages[stage].tex_coord = texCoord;
@@ -3139,17 +3260,22 @@ void GXInitLightDistAttn(void* light, f32 ref_dist, f32 ref_br, u32 distFn) {
     (void)light; (void)ref_dist; (void)ref_br; (void)distFn;
 }
 void GXLoadLightObjImm(void* light, u32 id) {
-    if (id >= 8 || !light) return;
+    if (!light || id == 0) return;
+    /* GXLightID is a bitmask: GX_LIGHT0=1, GX_LIGHT1=2, GX_LIGHT2=4, etc.
+     * Convert to array index 0-7 by finding the set bit position. */
+    int idx = 0;
+    u32 mask = id;
+    while (mask > 1 && idx < 7) { mask >>= 1; idx++; }
     f32* obj = (f32*)light;
     u32* uobj = (u32*)light;
-    g_gx.lights[id].pos[0] = obj[4];
-    g_gx.lights[id].pos[1] = obj[5];
-    g_gx.lights[id].pos[2] = obj[6];
+    g_gx.lights[idx].pos[0] = obj[4];
+    g_gx.lights[idx].pos[1] = obj[5];
+    g_gx.lights[idx].pos[2] = obj[6];
     u32 c = uobj[3];
-    g_gx.lights[id].color[0] = GXCOLOR_R(c) / 255.0f;
-    g_gx.lights[id].color[1] = GXCOLOR_G(c) / 255.0f;
-    g_gx.lights[id].color[2] = GXCOLOR_B(c) / 255.0f;
-    g_gx.lights[id].color[3] = GXCOLOR_A(c) / 255.0f;
+    g_gx.lights[idx].color[0] = GXCOLOR_R(c) / 255.0f;
+    g_gx.lights[idx].color[1] = GXCOLOR_G(c) / 255.0f;
+    g_gx.lights[idx].color[2] = GXCOLOR_B(c) / 255.0f;
+    g_gx.lights[idx].color[3] = GXCOLOR_A(c) / 255.0f;
     DIRTY(PC_GX_DIRTY_LIGHTING);
 }
 void GXLoadLightObjIndx(u32 ltObj, u32 id) { (void)ltObj; (void)id; }

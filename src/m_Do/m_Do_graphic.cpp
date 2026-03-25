@@ -43,6 +43,7 @@ extern "C" void pc_draw_test_triangle(void);
 
 #ifdef TARGET_PC
 #include "pc_platform.h"
+#include "pc_gx_internal.h"
 extern int g_pc_verbose;
 #endif
 
@@ -1741,31 +1742,35 @@ int mDoGph_Painter() {
             if (!s_init) {
                 s_init = true;
                 memset(s_defaultCameraStorage, 0, sizeof(s_defaultCameraStorage));
-                s_defaultCameraPtr->view.fovy = 90.0f;
+                s_defaultCameraPtr->view.fovy = 60.0f;
                 s_defaultCameraPtr->view.aspect = (f32)FB_WIDTH / (f32)FB_HEIGHT;
                 s_defaultCameraPtr->view.near = 1.0f;
                 s_defaultCameraPtr->view.far = 128000.0f;
                 fprintf(stderr, "[PC] Using default camera\n");
             }
-            /* Update view matrix each frame based on player position */
+            /* Title screen camera: player at (34941,-299,-15854), castle in -X.
+             * Position camera behind and above player, looking toward castle. */
             fopAc_ac_c* player = dComIfGp_getPlayer(0);
             Vec eye, center, up = {0.0f, 1.0f, 0.0f};
             if (player != NULL) {
-                /* Position camera behind and slightly above player, looking
-                 * toward the castle/bridge area (which is in -X direction). */
                 f32 px = player->current.pos.x;
                 f32 py = player->current.pos.y;
                 f32 pz = player->current.pos.z;
-                eye.x = px + 1500.0f;
-                eye.y = py + 300.0f;
-                eye.z = pz - 500.0f;
-                center.x = px - 1000.0f;
-                center.y = py + 100.0f;
-                center.z = pz + 200.0f;
+                /* Camera behind player looking -X toward castle.
+                 * Previous working pos had castle on far left with:
+                 * eye=(px+1500, py+300, pz-500) center=(px-1000, py+100, pz+200)
+                 * Shift look direction more toward -X to center the castle. */
+                /* Title screen view: behind player looking -Z toward castle.
+                 * Link should be bottom-left, castle center-right. */
+                eye.x = px + 1000.0f;
+                eye.y = py + 400.0f;
+                eye.z = pz + 3000.0f;
+                center.x = px - 500.0f;
+                center.y = py;
+                center.z = pz - 5000.0f;
             } else {
-                /* Fallback before player spawns */
-                eye.x = 34941.0f; eye.y = 300.0f; eye.z = -15854.0f;
-                center.x = 34941.0f; center.y = 0.0f; center.z = -15554.0f;
+                eye.x = 36441.0f; eye.y = 0.0f; eye.z = -16054.0f;
+                center.x = 32941.0f; center.y = -250.0f; center.z = -16054.0f;
             }
             C_MTXLookAt(s_defaultCameraPtr->view.viewMtx, &eye, &up, &center);
             C_MTXPerspective(s_defaultCameraPtr->view.projMtx,
@@ -1858,6 +1863,37 @@ int mDoGph_Painter() {
 
             j3dSys.setViewMtx(camera_p->view.viewMtx);
             dKy_setLight();
+#ifdef TARGET_PC
+            /* Set up fog for the 3D scene to create the warm atmosphere.
+             * The environment system computes fog colors from palette data,
+             * but on PC the fog GX call may not reach the shader through
+             * normal J3D paths. Set it directly here as a fallback. */
+            {
+                /* Set warm orange fog for title screen atmosphere.
+                 * The env system should compute these from palette data,
+                 * but use sensible defaults as fallback. */
+                f32 fogStart = g_env_light.mFogNear;
+                f32 fogEnd = g_env_light.mFogFar;
+                u8 fr = (u8)(g_env_light.fog_col.r & 0xFF);
+                u8 fg = (u8)(g_env_light.fog_col.g & 0xFF);
+                u8 fb = (u8)(g_env_light.fog_col.b & 0xFF);
+                if (fogEnd <= fogStart || fogEnd <= 0.0f || (fr == 0 && fg == 0 && fb == 0)) {
+                    fr = 180; fg = 120; fb = 60;
+                    fogStart = 3000.0f;
+                    fogEnd = 25000.0f;
+                }
+                /* Pack as big-endian RGBA u32 for GXCOLOR_R/G/B/A macros */
+                u32 pc = ((u32)fr << 24) | ((u32)fg << 16) | ((u32)fb << 8) | 0xFF;
+                g_gx.fog_type = GX_FOG_PERSP_LIN;
+                g_gx.fog_start = fogStart;
+                g_gx.fog_end = fogEnd;
+                g_gx.fog_color[0] = fr / 255.0f;
+                g_gx.fog_color[1] = fg / 255.0f;
+                g_gx.fog_color[2] = fb / 255.0f;
+                g_gx.fog_color[3] = 1.0f;
+                g_gx.dirty |= PC_GX_DIRTY_FOG;
+            }
+#endif
             dComIfGd_drawOpaListSky();
             dComIfGd_drawXluListSky();
 
