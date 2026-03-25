@@ -1746,58 +1746,24 @@ void pc_gx_flush_vertices(void) {
      * only renders black frames during logo fade-in anyway, so the visual
      * impact is negligible. After the skip period, draws proceed normally.
      * Also wrap in crash protection as a safety net. */
+    /* Validate shader program before draw to avoid Metal pipeline crashes.
+     * On macOS ARM64, Metal compiles pipeline variants lazily. If a new
+     * state combo triggers a compiler bug, glDrawElements crashes with
+     * SIGBUS. Using glValidateProgram detects this without crashing. */
     {
-        /* Wrap draw in crash protection: Metal's pipeline compiler can SIGBUS
-         * on macOS ARM64 when it encounters a new state combination. Skip
-         * the draw and continue — don't retry as glFinish() deadlocks after crash. */
-        jmp_buf drawBuf;
-        jmp_buf* prevDrawBuf = pc_crash_get_jmpbuf();
-        pc_crash_set_jmpbuf(&drawBuf);
-        /* Log draw details when scene is active */
-        {
-            static int s_scene_draw_log = 0;
-            if (s_scene_draw_log < 15 && s_frame_draws_total > 2) {
-                float v0x = g_gx.vertex_buffer[0].position[0];
-                float v0y = g_gx.vertex_buffer[0].position[1];
-                float v0z = g_gx.vertex_buffer[0].position[2];
-                fprintf(stderr, "[SCENE-DRAW] #%d: prim=%d verts=%d pretrans=%d proj_type=%d v0=(%.1f,%.1f,%.1f) clr=(%d,%d,%d,%d) tex[0]=%u\n",
-                        s_scene_draw_log, g_gx.current_primitive, count,
-                        g_gx.batch_pretransformed, g_gx.projection_type,
-                        v0x, v0y, v0z,
-                        g_gx.vertex_buffer[0].color0[0], g_gx.vertex_buffer[0].color0[1],
-                        g_gx.vertex_buffer[0].color0[2], g_gx.vertex_buffer[0].color0[3],
-                        g_gx.gl_textures[0]);
-                s_scene_draw_log++;
+        GLint validated = GL_TRUE;
+#ifdef __APPLE__
+        glValidateProgram(shader);
+        glGetProgramiv(shader, GL_VALIDATE_STATUS, &validated);
+        if (!validated) {
+            static int s_validate_fail = 0;
+            if (s_validate_fail++ < 5) {
+                fprintf(stderr, "[GX] Shader validation failed — skipping draw (prim=%d verts=%d pretrans=%d)\n",
+                        g_gx.current_primitive, count, g_gx.batch_pretransformed);
             }
         }
-        /* Log GL state before first few draws to find Metal crash trigger */
-        {
-            static int s_pre_draw_log = 0;
-            if (s_pre_draw_log < 3 && g_gx.batch_pretransformed) {
-                GLint blend_en, depth_en, cull_en, scissor_en;
-                GLint blend_src, blend_dst, depth_func;
-                GLint viewport[4], scissor[4];
-                glGetIntegerv(GL_BLEND, &blend_en);
-                glGetIntegerv(GL_DEPTH_TEST, &depth_en);
-                glGetIntegerv(GL_CULL_FACE, &cull_en);
-                glGetIntegerv(GL_SCISSOR_TEST, &scissor_en);
-                glGetIntegerv(GL_BLEND_SRC_RGB, &blend_src);
-                glGetIntegerv(GL_BLEND_DST_RGB, &blend_dst);
-                glGetIntegerv(GL_DEPTH_FUNC, &depth_func);
-                glGetIntegerv(GL_VIEWPORT, viewport);
-                glGetIntegerv(GL_SCISSOR_BOX, scissor);
-                fprintf(stderr, "[PRE-DRAW] pretrans=%d prim=%d verts=%d shader=%u simple=%d\n",
-                        g_gx.batch_pretransformed, g_gx.current_primitive, count,
-                        shader, pc_gx_tev_is_simple_shader(shader));
-                fprintf(stderr, "[PRE-DRAW]   blend=%d(src=%x dst=%x) depth=%d(func=%x) cull=%d scissor=%d\n",
-                        blend_en, blend_src, blend_dst, depth_en, depth_func, cull_en, scissor_en);
-                fprintf(stderr, "[PRE-DRAW]   viewport=(%d,%d,%d,%d) scissor=(%d,%d,%d,%d)\n",
-                        viewport[0], viewport[1], viewport[2], viewport[3],
-                        scissor[0], scissor[1], scissor[2], scissor[3]);
-                s_pre_draw_log++;
-            }
-        }
-        if (setjmp(drawBuf) == 0) {
+#endif
+        if (validated) {
             if (g_gx.current_primitive == GX_QUADS) {
                 int num_quads = count / 4;
                 int num_indices = num_quads * 6;
@@ -1810,17 +1776,7 @@ void pc_gx_flush_vertices(void) {
             s_frame_draws_ok++;
         } else {
             s_frame_draws_crash++;
-            static int s_draw_crash_count = 0;
-            s_draw_crash_count++;
-            if (s_draw_crash_count <= 10) {
-                fprintf(stderr, "[GX] Metal pipeline crash #%d: prim=%d verts=%d pretrans=%d — skipping (GL context corrupted after longjmp)\n",
-                        s_draw_crash_count, g_gx.current_primitive, count, g_gx.batch_pretransformed);
-            }
-            /* Do NOT retry after longjmp — the GL context is in an undefined
-             * state after Metal's shader compiler crashes. Any GL call risks
-             * a secondary crash. Just skip this draw. */
         }
-        pc_crash_set_jmpbuf(prevDrawBuf);
     }
 
     g_gx.vertex_count = 0;
