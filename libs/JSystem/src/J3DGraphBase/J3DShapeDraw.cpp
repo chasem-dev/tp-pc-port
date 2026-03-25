@@ -5,6 +5,11 @@
 #include <cstring>
 #include <stdint.h>
 #include <gx.h>
+#ifdef TARGET_PC
+#include <cstdio>
+extern int g_pc_verbose;
+extern "C" u32 VIGetRetraceCount(void);
+#endif
 
 u32 J3DShapeDraw::countVertex(u32 stride) {
     u32 count = 0;
@@ -76,6 +81,17 @@ J3DShapeDraw::J3DShapeDraw(const u8* displayList, u32 displayListSize) {
 }
 
 void J3DShapeDraw::draw() const {
+#ifdef TARGET_PC
+    static int s_shape_dl_log = 0;
+    if (s_shape_dl_log < 10 && mDisplayList && mDisplayListSize > 0) {
+        const u8* p = (const u8*)mDisplayList;
+        fprintf(stderr,
+                "[SHAPE-DL] size=%u first8=%02x%02x%02x%02x %02x%02x%02x%02x\n",
+                mDisplayListSize,
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
+        s_shape_dl_log++;
+    }
+#endif
     GXCallDisplayList(mDisplayList, mDisplayListSize);
 }
 

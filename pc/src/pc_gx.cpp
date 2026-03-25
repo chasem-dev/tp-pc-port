@@ -1736,6 +1736,23 @@ void pc_gx_flush_vertices(void) {
         jmp_buf drawBuf;
         jmp_buf* prevDrawBuf = pc_crash_get_jmpbuf();
         pc_crash_set_jmpbuf(&drawBuf);
+        /* Log draw details when scene is active */
+        {
+            static int s_scene_draw_log = 0;
+            if (s_scene_draw_log < 15 && s_frame_draws_total > 2) {
+                float v0x = g_gx.vertex_buffer[0].position[0];
+                float v0y = g_gx.vertex_buffer[0].position[1];
+                float v0z = g_gx.vertex_buffer[0].position[2];
+                fprintf(stderr, "[SCENE-DRAW] #%d: prim=%d verts=%d pretrans=%d proj_type=%d v0=(%.1f,%.1f,%.1f) clr=(%d,%d,%d,%d) tex[0]=%u\n",
+                        s_scene_draw_log, g_gx.current_primitive, count,
+                        g_gx.batch_pretransformed, g_gx.projection_type,
+                        v0x, v0y, v0z,
+                        g_gx.vertex_buffer[0].color0[0], g_gx.vertex_buffer[0].color0[1],
+                        g_gx.vertex_buffer[0].color0[2], g_gx.vertex_buffer[0].color0[3],
+                        g_gx.gl_textures[0]);
+                s_scene_draw_log++;
+            }
+        }
         /* Log GL state before first few draws to find Metal crash trigger */
         {
             static int s_pre_draw_log = 0;
@@ -2110,7 +2127,25 @@ static int pc_gx_calc_vertex_size(u32 vtxfmt) {
     return size;
 }
 
+static int s_dl_calls_this_frame = 0;
+static int s_dl_prims_this_frame = 0;
+static u32 s_dl_last_retrace = 0;
 void GXCallDisplayList(const void* list, u32 nbytes) {
+    {
+        u32 r = VIGetRetraceCount();
+        if (r != s_dl_last_retrace) {
+            static int s_dl_frame_log = 0;
+            if (s_dl_frame_log < 10 && s_dl_calls_this_frame > 0 && r > 370) {
+                fprintf(stderr, "[DL-STATS] frame %u: %d DL calls, %d primitives\n",
+                        s_dl_last_retrace, s_dl_calls_this_frame, s_dl_prims_this_frame);
+                s_dl_frame_log++;
+            }
+            s_dl_calls_this_frame = 0;
+            s_dl_prims_this_frame = 0;
+            s_dl_last_retrace = r;
+        }
+        s_dl_calls_this_frame++;
+    }
     static int s_gxcdl = 0;
     if (g_pc_verbose && (s_gxcdl++ < 500 || nbytes > 5000)) {
         u8 first = list ? ((const u8*)list)[0] : 0;
@@ -2480,6 +2515,7 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
             u16 vtx_count = read_be16(p + 1);
             p += 3;
             primitive_cmd_count++;
+            s_dl_prims_this_frame++;
 
             int vtx_size = pc_gx_calc_vertex_size(vat_idx);
             u32 data_size = (u32)vtx_count * vtx_size;
@@ -2583,14 +2619,15 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
         }
     }
 
-    if (g_pc_verbose && primitive_cmd_count == 0) {
+    /* Log large DLs (geometry data) that produce no primitives */
+    if (primitive_cmd_count == 0 && nbytes > 64) {
         static int s_no_prim_log = 0;
-        if (s_no_prim_log++ < 32) {
+        if (s_no_prim_log++ < 10) {
+            const u8* raw = (const u8*)list;
             fprintf(stderr,
-                    "[GX] DL had no primitives: list=%p size=%u first=%02x %02x %02x %02x\n",
-                    list, nbytes, ((const u8*)list)[0], ((const u8*)list)[1],
-                    ((const u8*)list)[2], ((const u8*)list)[3]);
-            fflush(stderr);
+                    "[DL-EMPTY] size=%u prims=0 first16=%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x\n",
+                    nbytes, raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
+                    raw[8], raw[9], raw[10], raw[11], raw[12], raw[13], raw[14], raw[15]);
         }
     }
     if (swapped_words_buf != NULL) {
