@@ -496,7 +496,11 @@ void dScnLogo_c::warningInDraw() {
 
     if (mTimer == 0) {
         mExecCommand = EXEC_WARNING_DISP;
+#ifdef TARGET_PC
+        mTimer = 120;
+#else
         mTimer = 3510;
+#endif
         field_0x20e = 30;
         field_0x210 = field_0x20e;
         field_0x212 = 1;
@@ -569,10 +573,6 @@ void dScnLogo_c::warningOutDraw() {
 }
 
 void dScnLogo_c::nintendoInDraw() {
-#ifdef TARGET_PC
-    static int s_nin = 0;
-    if (s_nin++ < 3) fprintf(stderr, "[PC] nintendoInDraw: mNintendoLogo=%p\n", (void*)mNintendoLogo);
-#endif
     dComIfGd_set2DOpa(mNintendoLogo);
 
     if (mTimer == 0) {
@@ -812,6 +812,10 @@ void dScnLogo_c::nextSceneChange() {
     } else {
         return; /* Already requested — don't spam scene change requests */
     }
+    /* Use the normal opening-scene handoff on PC as well.
+     * This seeds next-stage state (F_SP102) before scene change. */
+    dComIfG_changeOpeningScene(this, fpcNm_OPENING_SCENE_e);
+    return;
 #endif
     if (!mDoRst::isReset()) {
         if (!isOpeningCut())
@@ -866,7 +870,10 @@ dScnLogo_c::~dScnLogo_c() {
     delete mMocImg;
     #endif
 
-    preLoad_dyl_remove();
+    if (m_preLoad_dylPhase != NULL) {
+        preLoad_dyl_remove();
+        m_preLoad_dylPhase = NULL;
+    }
 
     #if PLATFORM_WII || PLATFORM_SHIELD
     switch (getPalLanguage()) {
@@ -885,30 +892,38 @@ dScnLogo_c::~dScnLogo_c() {
     dComIfG_deleteObjectResMain(LOGO_ARC);
     #endif
 
-    mLogo01Heap->destroy();
-    mLogoHeap->destroy();
-    JKRFree(dummyGameAlloc);
+    if (mLogo01Heap != NULL) {
+        mLogo01Heap->destroy();
+    }
+    if (mLogoHeap != NULL) {
+        mLogoHeap->destroy();
+    }
+    if (dummyGameAlloc != NULL) {
+        JKRFree(dummyGameAlloc);
+    }
 
     #if PLATFORM_WII || VERSION == VERSION_SHIELD
     dHomeButton_c::create(mHomeBtnRegion, mpHomeBtnCommand->getMemAddress());
     mpHomeBtnCommand->destroy();
     #endif
 
-    dComIfGp_particle_createCommon(mParticleCommand->getMemAddress());
-    dComIfGp_setFieldMapArchive2(mpField0Command->getArchive());
-    dComIfGp_setAnmArchive(mpAlAnmCommand->getArchive());
-    dComIfGp_setFmapResArchive(mpFmapResCommand->getArchive());
-    dComIfGp_setDmapResArchive(mpDmapResCommand->getArchive());
-    dComIfGp_setCollectResArchive(mpCollectResCommand->getArchive());
-    dComIfGp_setItemIconArchive(mpItemIconCommand->getArchive());
+    if (mParticleCommand != NULL) {
+        dComIfGp_particle_createCommon(mParticleCommand->getMemAddress());
+    }
+    dComIfGp_setFieldMapArchive2(mpField0Command != NULL ? mpField0Command->getArchive() : NULL);
+    dComIfGp_setAnmArchive(mpAlAnmCommand != NULL ? mpAlAnmCommand->getArchive() : NULL);
+    dComIfGp_setFmapResArchive(mpFmapResCommand != NULL ? mpFmapResCommand->getArchive() : NULL);
+    dComIfGp_setDmapResArchive(mpDmapResCommand != NULL ? mpDmapResCommand->getArchive() : NULL);
+    dComIfGp_setCollectResArchive(mpCollectResCommand != NULL ? mpCollectResCommand->getArchive() : NULL);
+    dComIfGp_setItemIconArchive(mpItemIconCommand != NULL ? mpItemIconCommand->getArchive() : NULL);
     dComIfGp_setAllMapArchive(NULL);
-    dComIfGp_setRingResArchive(mpRingResCommand->getArchive());
-    dComIfGp_setNameResArchive(mpPlayerNameCommand->getArchive());
-    dComIfGp_setDemoMsgArchive(mpItemInfResCommand->getArchive());
+    dComIfGp_setRingResArchive(mpRingResCommand != NULL ? mpRingResCommand->getArchive() : NULL);
+    dComIfGp_setNameResArchive(mpPlayerNameCommand != NULL ? mpPlayerNameCommand->getArchive() : NULL);
+    dComIfGp_setDemoMsgArchive(mpItemInfResCommand != NULL ? mpItemInfResCommand->getArchive() : NULL);
 
-    dComIfGp_setMeterButtonArchive(mpButtonCommand->getArchive());
+    dComIfGp_setMeterButtonArchive(mpButtonCommand != NULL ? mpButtonCommand->getArchive() : NULL);
     #if DEBUG
-    JKRArchive* button = mpButtonCommand->getArchive();
+    JKRArchive* button = mpButtonCommand != NULL ? mpButtonCommand->getArchive() : NULL;
     if (button != NULL) {
         OS_REPORT("button not nullptr\n");
     } else {
@@ -917,35 +932,37 @@ dScnLogo_c::~dScnLogo_c() {
     #endif
 
     dComIfGp_setErrorResArchive(NULL);
-    dComIfGp_setCardIconResArchive(mpCardIconCommand->getArchive());
-    dComIfGp_setMsgDtArchive(0, mpBmgResCommand->getArchive());
-    dComIfGp_setMsgCommonArchive(mpMsgComCommand->getArchive());
+    dComIfGp_setCardIconResArchive(mpCardIconCommand != NULL ? mpCardIconCommand->getArchive() : NULL);
+    dComIfGp_setMsgDtArchive(0, mpBmgResCommand != NULL ? mpBmgResCommand->getArchive() : NULL);
+    dComIfGp_setMsgCommonArchive(mpMsgComCommand != NULL ? mpMsgComCommand->getArchive() : NULL);
     for (int i = 0; i < 7; i++) {
-        dComIfGp_setMsgArchive(i, mpMsgResCommand[i]->getArchive());
+        dComIfGp_setMsgArchive(i, mpMsgResCommand[i] != NULL ? mpMsgResCommand[i]->getArchive() : NULL);
     }
-    dComIfGp_setFontArchive(mpFontResCommand->getArchive());
-    dComIfGp_setRubyArchive(mpRubyResCommand->getArchive());
-    dComIfGp_setMain2DArchive(mpMain2DCommand->getArchive());
+    dComIfGp_setFontArchive(mpFontResCommand != NULL ? mpFontResCommand->getArchive() : NULL);
+    dComIfGp_setRubyArchive(mpRubyResCommand != NULL ? mpRubyResCommand->getArchive() : NULL);
+    dComIfGp_setMain2DArchive(mpMain2DCommand != NULL ? mpMain2DCommand->getArchive() : NULL);
 
-    mpField0Command->destroy();
-    mpAlAnmCommand->destroy();
-    mpFmapResCommand->destroy();
-    mpDmapResCommand->destroy();
-    mpCollectResCommand->destroy();
-    mpItemIconCommand->destroy();
-    mpRingResCommand->destroy();
-    mpPlayerNameCommand->destroy();
-    mpItemInfResCommand->destroy();
-    mpButtonCommand->destroy();
-    mpCardIconCommand->destroy();
-    mpBmgResCommand->destroy();
-    mpMsgComCommand->destroy();
+    if (mpField0Command != NULL) mpField0Command->destroy();
+    if (mpAlAnmCommand != NULL) mpAlAnmCommand->destroy();
+    if (mpFmapResCommand != NULL) mpFmapResCommand->destroy();
+    if (mpDmapResCommand != NULL) mpDmapResCommand->destroy();
+    if (mpCollectResCommand != NULL) mpCollectResCommand->destroy();
+    if (mpItemIconCommand != NULL) mpItemIconCommand->destroy();
+    if (mpRingResCommand != NULL) mpRingResCommand->destroy();
+    if (mpPlayerNameCommand != NULL) mpPlayerNameCommand->destroy();
+    if (mpItemInfResCommand != NULL) mpItemInfResCommand->destroy();
+    if (mpButtonCommand != NULL) mpButtonCommand->destroy();
+    if (mpCardIconCommand != NULL) mpCardIconCommand->destroy();
+    if (mpBmgResCommand != NULL) mpBmgResCommand->destroy();
+    if (mpMsgComCommand != NULL) mpMsgComCommand->destroy();
     for (int i = 0; i < 7; i++) {
-        mpMsgResCommand[i]->destroy();
+        if (mpMsgResCommand[i] != NULL) {
+            mpMsgResCommand[i]->destroy();
+        }
     }
-    mpFontResCommand->destroy();
-    mpMain2DCommand->destroy();
-    mpRubyResCommand->destroy();
+    if (mpFontResCommand != NULL) mpFontResCommand->destroy();
+    if (mpMain2DCommand != NULL) mpMain2DCommand->destroy();
+    if (mpRubyResCommand != NULL) mpRubyResCommand->destroy();
 
     #if !PLATFORM_SHIELD
     mParticleCommand->destroy();
@@ -967,16 +984,24 @@ dScnLogo_c::~dScnLogo_c() {
     }
 #endif
 
-    dComIfGp_setItemTable(mItemTableCommand->getMemAddress());
+    if (mItemTableCommand != NULL) {
+        dComIfGp_setItemTable(mItemTableCommand->getMemAddress());
+    }
     #if !PLATFORM_SHIELD
-    mItemTableCommand->destroy();
+    if (mItemTableCommand != NULL) {
+        mItemTableCommand->destroy();
+    }
     #else
     delete mItemTableCommand;
     #endif
 
-    dEnemyItem_c::setItemData((u8*)mEnemyItemCommand->getMemAddress());
+    if (mEnemyItemCommand != NULL) {
+        dEnemyItem_c::setItemData((u8*)mEnemyItemCommand->getMemAddress());
+    }
     #if !PLATFORM_SHIELD
-    mEnemyItemCommand->destroy();
+    if (mEnemyItemCommand != NULL) {
+        mEnemyItemCommand->destroy();
+    }
     #else
     delete mEnemyItemCommand;
     #endif
@@ -1138,6 +1163,70 @@ int dScnLogo_c::create() {
     s_create_count++;
     if (s_create_count % 30 == 1) fprintf(stderr, "[PC] dScnLogo_c::create() #%d\n", s_create_count);
 #endif
+    /* Keep members in a known state so partial-create teardown is safe. */
+    sceneCommand = NULL;
+    mLogoHeap = NULL;
+    mLogo01Heap = NULL;
+    mpHeap = NULL;
+    mWarning = NULL;
+    mWarningStart = NULL;
+    mNintendoLogo = NULL;
+    mDolbyLogo = NULL;
+    mProgressiveChoice = NULL;
+    mProgressiveYes = NULL;
+    mProgressiveNo = NULL;
+    mProgressiveSel = NULL;
+#if PLATFORM_WII || PLATFORM_SHIELD
+    mStrapImg = NULL;
+#endif
+#if VERSION == VERSION_SHIELD
+    mNvLogo = NULL;
+    mMocImg = NULL;
+#endif
+#if VERSION == VERSION_GCN_PAL
+    mpPalLogoResCommand = NULL;
+#endif
+    m_preLoad_dylPhase = NULL;
+    mProgressivePro = NULL;
+    mProgressiveInter = NULL;
+    mExecCommand = 0;
+    field_0x209 = 0;
+    field_0x20a = 0;
+    field_0x20b = 0;
+    mTimer = 0;
+    field_0x20e = 0;
+    field_0x210 = 0;
+    field_0x212 = 0;
+    field_0x214 = 0;
+    field_0x218 = 0;
+    dummyGameAlloc = NULL;
+#if PLATFORM_WII || VERSION == VERSION_SHIELD
+    mpHomeBtnCommand = NULL;
+    mHomeBtnRegion = 0;
+#endif
+    mpField0Command = NULL;
+    mpAlAnmCommand = NULL;
+    mpFmapResCommand = NULL;
+    mpDmapResCommand = NULL;
+    mpCollectResCommand = NULL;
+    mpItemIconCommand = NULL;
+    mpRingResCommand = NULL;
+    mpPlayerNameCommand = NULL;
+    mpItemInfResCommand = NULL;
+    mpButtonCommand = NULL;
+    mpCardIconCommand = NULL;
+    mpBmgResCommand = NULL;
+    mpMsgComCommand = NULL;
+    for (int i = 0; i < 7; i++) {
+        mpMsgResCommand[i] = NULL;
+    }
+    mpFontResCommand = NULL;
+    mpMain2DCommand = NULL;
+    mpRubyResCommand = NULL;
+    mParticleCommand = NULL;
+    mItemTableCommand = NULL;
+    mEnemyItemCommand = NULL;
+
     int phase_state = resLoad(&field_0x1c4, this);
     if (phase_state != cPhs_COMPLEATE_e) {
         return phase_state;
@@ -1229,15 +1318,38 @@ int dScnLogo_c::create() {
     mDoGph_gInf_c::startFadeIn(30);
 
     #if !(PLATFORM_WII || PLATFORM_SHIELD)
-    checkProgSelect();
 #ifdef TARGET_PC
-    /* Skip warning — go straight to Nintendo logo */
-    mDoRst::setWarningDispFlag(1);
-    mDoRst::setProgSeqFlag(1);
-    mTimer = 90;
-    mExecCommand = EXEC_NINTENDO_IN;
+    /* TP_SKIP_LOGO: 0=full boot, 1=skip to Nintendo, 2=skip to Dolby, 3=skip to DVD wait */
     {
-#else
+        const char* skip = getenv("TP_SKIP_LOGO");
+        int skip_level = skip ? atoi(skip) : 0;
+        if (skip_level >= 3) {
+            mExecCommand = EXEC_DVD_WAIT;
+            mTimer = 0;
+            mDoRst::setWarningDispFlag(1);
+            mDoRst::setProgSeqFlag(1);
+            fprintf(stderr, "[PC] TP_SKIP_LOGO=%d: skipping to DVD_WAIT\n", skip_level);
+        } else if (skip_level >= 2) {
+            mExecCommand = EXEC_DOLBY_IN;
+            mTimer = 30;
+            mDoGph_gInf_c::startFadeIn(30);
+            mDoRst::setWarningDispFlag(1);
+            mDoRst::setProgSeqFlag(1);
+            fprintf(stderr, "[PC] TP_SKIP_LOGO=%d: skipping to DOLBY_IN\n", skip_level);
+        } else if (skip_level >= 1) {
+            mExecCommand = EXEC_NINTENDO_IN;
+            mTimer = 90;
+            mDoRst::setWarningDispFlag(1);
+            mDoRst::setProgSeqFlag(1);
+            fprintf(stderr, "[PC] TP_SKIP_LOGO=%d: skipping to NINTENDO_IN\n", skip_level);
+        } else {
+            goto normal_boot;
+        }
+        goto skip_done;
+    }
+normal_boot:
+#endif
+    checkProgSelect();
     if (field_0x20a != 0) {
         mExecCommand = EXEC_PROG_IN;
         mTimer = 30;
@@ -1251,8 +1363,10 @@ int dScnLogo_c::create() {
             mExecCommand = EXEC_WARNING_IN;
         }
         mDoRst::setProgSeqFlag(1);
-#endif
     }
+#ifdef TARGET_PC
+skip_done:
+#endif
 
     JUTGamePad::clearResetOccurred();
     JUTGamePad::setResetCallback(mDoRst_resetCallBack, NULL);
