@@ -279,15 +279,23 @@ J3DShapeDraw* J3DShapeFactory::newShapeDraw(int shapeNo, int mtxGroupNo) const {
      * the totalMtxGrp count is wrong. Detect and fix big-endian values. */
     u32 dlIndex = drawInitData.mDisplayListIndex;
     u32 dlSize = drawInitData.mDisplayListSize;
-    if (dlSize > 0x100000 || dlIndex > 0x100000) {
-        /* Likely unswapped big-endian — byte-swap both fields */
-        u32 swSize = __builtin_bswap32(dlSize);
-        u32 swIdx = __builtin_bswap32(dlIndex);
+    /* Detect and fix unswapped DrawInitData. The SHP1 byte-swap may miss
+     * DrawInitData entries. Check both raw and swapped values to pick the
+     * one that looks like valid DL parameters. */
+    u32 swSize = __builtin_bswap32(dlSize);
+    u32 swIdx = __builtin_bswap32(dlIndex);
+    bool rawValid = (dlSize > 0 && dlSize < 0x80000 && dlIndex < 0x200000);
+    bool swValid = (swSize > 0 && swSize < 0x80000 && swIdx < 0x200000);
+    if (!rawValid && swValid) {
         static int s_fix_log = 0;
-        if (s_fix_log++ < 5) {
-            fprintf(stderr, "[SHP-FIX] shape=%d grp=%d: fixing unswapped DrawInitData (size 0x%x→0x%x, idx 0x%x→0x%x)\n",
+        if (s_fix_log++ < 15) {
+            fprintf(stderr, "[SHP-FIX] shape=%d grp=%d: fixing DrawInitData (size 0x%x->0x%x, idx 0x%x->0x%x)\n",
                     shapeNo, mtxGroupNo, dlSize, swSize, dlIndex, swIdx);
         }
+        dlSize = swSize;
+        dlIndex = swIdx;
+    } else if (dlSize == 0 && swSize > 0 && swSize < 0x80000) {
+        /* Raw size is 0 but swapped gives a valid size */
         dlSize = swSize;
         dlIndex = swIdx;
     }

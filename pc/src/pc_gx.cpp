@@ -2200,10 +2200,23 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
             if (first != 0x08 && first != 0x10 &&
                 !(first >= 0x20 && first <= 0x38 && (first & 0x07) == 0) &&
                 first != 0x61 && !(first >= 0x80 && first <= 0xBF)) {
+                {
+                    static int s_reject_log = 0;
+                    u32 r = VIGetRetraceCount();
+                    if (r > 500 && s_reject_log < 15) {
+                        fprintf(stderr, "[DL-REJECT] first=%02x size=%u bytes=[%02x %02x %02x %02x %02x %02x]\n",
+                                first, nbytes,
+                                p[0], nbytes>1?p[1]:0, nbytes>2?p[2]:0,
+                                nbytes>3?p[3]:0, nbytes>4?p[4]:0, nbytes>5?p[5]:0);
+                        s_reject_log++;
+                    }
+                }
                 return; /* Not a valid DL — skip */
             }
         }
     }
+
+    int primitive_cmd_count_before = primitive_cmd_count;
 
     while (p < end) {
         u8 cmd = *p;
@@ -2748,6 +2761,21 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
                     "[DL-EMPTY] size=%u prims=0 first16=%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x\n",
                     nbytes, raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
                     raw[8], raw[9], raw[10], raw[11], raw[12], raw[13], raw[14], raw[15]);
+        }
+    }
+    /* Log DLs that found no primitives */
+    if (primitive_cmd_count == primitive_cmd_count_before && nbytes > 32) {
+        static int s_noprim_log = 0;
+        u32 r = VIGetRetraceCount();
+        if (r > 500 && s_noprim_log < 10) {
+            fprintf(stderr, "[DL-NOPRIM] size=%u first16=[%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x] swapped=%d\n",
+                    nbytes,
+                    ((const u8*)list)[0], ((const u8*)list)[1], ((const u8*)list)[2], ((const u8*)list)[3],
+                    ((const u8*)list)[4], ((const u8*)list)[5], ((const u8*)list)[6], ((const u8*)list)[7],
+                    ((const u8*)list)[8], ((const u8*)list)[9], ((const u8*)list)[10], ((const u8*)list)[11],
+                    ((const u8*)list)[12], ((const u8*)list)[13], ((const u8*)list)[14], ((const u8*)list)[15],
+                    swapped_words_buf != NULL ? 1 : 0);
+            s_noprim_log++;
         }
     }
     if (swapped_words_buf != NULL) {
