@@ -25,6 +25,9 @@ static void texScrollCheck(f32& param_0) {
 }
 
 static int daVrbox2_Draw(vrbox2_class* i_this) {
+#ifdef TARGET_PC
+    return 1; /* Skip skybox2 until textures work */
+#endif
     camera_class* camera_p;
     dKankyo_sunlenz_Packet* lenz_p;
     J3DModel* kumo_model_p;
