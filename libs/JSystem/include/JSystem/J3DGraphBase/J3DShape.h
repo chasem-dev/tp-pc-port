@@ -179,6 +179,7 @@ public:
     }
 
     void setDrawMtx(Mtx** pDrawMtx) { mDrawMtx = pDrawMtx; }
+    Mtx** getDrawMtxPtr() const { return mDrawMtx; }
     void setNrmMtx(Mtx33** pNrmMtx) { mNrmMtx = pNrmMtx; }
     void setTexMtxLoadType(u32 type) { mFlags = type | (mFlags & ~0xF000); }
     bool getNBTFlag() const { return mHasNBT; }

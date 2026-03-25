@@ -274,9 +274,12 @@ void main() {
     if (u_num_chans == 0) {
         rasColor = vec4(1.0);
     } else {
-        /* Force material from register (white) — vertex colors are broken
-         * (zero) due to indexed color array lookup issues on PC */
+        /* On PC, use register material color. Many vertex colors from indexed
+         * lookups are near-zero due to color array issues. Using register
+         * (white) ensures ambient light is visible on all geometry. */
         vec3 matC = u_mat_color.rgb;
+        float matVtx = max(v_color.r, max(v_color.g, v_color.b));
+        if (matVtx > 0.01) matC = v_color.rgb; /* use vertex color when valid */
         vec3 ambC = (u_chan_amb_src != 0) ? v_color.rgb : u_amb_color.rgb;
         if (u_lighting_enabled != 0) {
             vec3 lightAccum = ambC;

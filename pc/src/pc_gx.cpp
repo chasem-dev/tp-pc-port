@@ -1792,6 +1792,47 @@ void pc_gx_flush_vertices(void) {
             }
         }
 #endif
+        /* Log vertex position bounds for diagnostic */
+        {
+            static int s_vtx_log = 0;
+            static int s_zero_draws = 0;
+            static int s_offscreen_draws = 0;
+            static int s_visible_draws = 0;
+            u32 r = VIGetRetraceCount();
+            if (r > 500 && r < 510) {
+                float minX=1e9, minY=1e9, minZ=1e9;
+                float maxX=-1e9, maxY=-1e9, maxZ=-1e9;
+                bool all_zero = true;
+                for (int vi = 0; vi < count; vi++) {
+                    float x = vertex_data[vi].position[0];
+                    float y = vertex_data[vi].position[1];
+                    float z = vertex_data[vi].position[2];
+                    if (x!=0||y!=0||z!=0) all_zero = false;
+                    if (x<minX) minX=x; if (x>maxX) maxX=x;
+                    if (y<minY) minY=y; if (y>maxY) maxY=y;
+                    if (z<minZ) minZ=z; if (z>maxZ) maxZ=z;
+                }
+                if (all_zero) s_zero_draws++;
+                else if (maxX < -1e6 || minX > 1e6 || maxY < -1e6 || minY > 1e6) s_offscreen_draws++;
+                else s_visible_draws++;
+
+                if (s_vtx_log < 30 && !all_zero) {
+                    fprintf(stderr, "[VTX-POS] verts=%d pos=[%.0f..%.0f, %.0f..%.0f, %.0f..%.0f] pretrans=%d col0=(%.2f,%.2f,%.2f)\n",
+                            count, minX, maxX, minY, maxY, minZ, maxZ,
+                            g_gx.batch_pretransformed,
+                            vertex_data[0].color0[0]/255.0f,
+                            vertex_data[0].color0[1]/255.0f,
+                            vertex_data[0].color0[2]/255.0f);
+                    s_vtx_log++;
+                }
+            }
+            if (r == 510 && s_vtx_log > 0) {
+                fprintf(stderr, "[VTX-SUMMARY] zero=%d offscreen=%d visible=%d\n",
+                        s_zero_draws, s_offscreen_draws, s_visible_draws);
+                s_vtx_log = -1; /* don't repeat */
+            }
+        }
+
         if (validated) {
             if (g_gx.current_primitive == GX_QUADS) {
                 int num_quads = count / 4;
@@ -2407,16 +2448,13 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
             if (p + 5 > end) {
                 break;
             }
-            /* Indexed XF load: bytes 1-2 = index, bytes 3-4 = ((size-1)<<12)|xf_addr.
-             * GX_LOAD_INDX_A (0x20) loads position matrices.
-             * Extract the XF address from the lower 12 bits of bytes 3-4.
-             * Convert XF address to GX matrix ID: xf_addr/4 gives the id
-             * that matches GXLoadPosMtxImm's id parameter (0, 3, 6, 9...). */
-            if ((cmd & 0xF8) == 0x20) {
-                u16 packed = read_be16(p + 3);
-                u16 xf_addr = packed & 0x0FFF;  /* lower 12 bits = XF destination address */
-                g_gx.current_mtx = xf_addr / 4; /* convert to GX matrix ID (0, 3, 6...) */
-            }
+            /* Indexed XF load: on GCN this reads matrix data from an external array
+             * and stores it into XF memory. On PC, the matrix was already loaded by
+             * J3DFifoLoadPosMtxImm (called from J3DShapeMtx or the base matrix path).
+             * DON'T change current_mtx here — it was already set by GXSetCurrentMtx
+             * to point to the slot where the matrix was loaded. Changing it would
+             * point to an empty slot and produce zero vertex positions. */
+            /* (cmd 0x20-0x3F consumed but not processed) */
             p += 5;
         } else if (cmd == 0x61) {
             if (p + 5 > end) {
