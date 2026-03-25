@@ -200,6 +200,8 @@ static const float INF = 2000000000.0f;
 // CW encodes all characters in big-endian order into the full integer, but GCC/Clang
 // truncate multi-char constants to int (4 bytes). This macro produces matching u64
 // values on all compilers. For <=4-char literals, raw constants like 'ABCD' are fine.
+// IMPORTANT: CW on GC truncates to the FIRST 4 characters (big-endian 32-bit).
+// J2D pane tags (read32b) are 32-bit, so we must also truncate to 4 chars.
 #ifdef __MWERKS__
     #define MULTI_CHAR(x) (x)
 #else
@@ -207,8 +209,12 @@ static const float INF = 2000000000.0f;
     inline constexpr unsigned long long MultiCharLiteral(const char (&buf)[N]) {
         static_assert(N - 1 >= 3 && N - 1 <= 10, "MULTI_CHAR literal must be 1-8 characters");
         unsigned long long out = 0;
-        for (int i = 1; i < N - 2; i++) {
-            out = (out << 8) | static_cast<unsigned char>(buf[i]);
+        /* Truncate to first 4 characters to match GC's MWC behavior.
+         * MWC encodes multi-char literals as big-endian u32 using the first 4 chars. */
+        int charCount = N - 3; /* exclude quote marks + null terminator */
+        int maxChars = charCount < 4 ? charCount : 4;
+        for (int i = 0; i < maxChars; i++) {
+            out = (out << 8) | static_cast<unsigned char>(buf[1 + i]);
         }
         return out;
     }

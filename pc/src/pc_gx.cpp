@@ -861,6 +861,23 @@ void pc_gx_init(void) {
             glEnable(GL_BLEND);
             WARMUP_DRAW(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
 
+            /* State combo 16-19: GL_TRIANGLES with depth ON (3D scene state) */
+            glEnable(GL_DEPTH_TEST);
+            glDepthFunc(GL_LEQUAL);
+            glDepthMask(GL_TRUE);
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_BACK);
+            glEnable(GL_BLEND);
+            WARMUP_DRAW(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+            glDisable(GL_BLEND);
+            WARMUP_DRAW(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+            glDisable(GL_DEPTH_TEST);
+            glDepthMask(GL_FALSE);
+            WARMUP_DRAW(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+            glEnable(GL_BLEND);
+            glDisable(GL_CULL_FACE);
+            WARMUP_DRAW(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+
             #undef WARMUP_DRAW
 
             /* Unbind texture */

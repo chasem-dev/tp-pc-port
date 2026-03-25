@@ -823,8 +823,8 @@ int mDoMch_Create() {
      * Also reserve enough arena for these larger heaps by reducing sysHeapSize. */
     /* 64-bit: pointers are 8 bytes instead of 4, CMemBlock headers are 24 bytes
      * instead of 16, and struct padding is larger. Scale all heaps generously. */
-    archiveHeapSize *= 24;
-    gameHeapSize *= 24;
+    archiveHeapSize *= 16;
+    gameHeapSize *= 16;
     j2dHeapSize *= 16;
     /* Ensure arena has enough room: reduce the system heap to make space.
      * arenaSize becomes the system heap; the root heap gets totalArena,

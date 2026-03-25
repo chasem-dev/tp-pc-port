@@ -6,7 +6,7 @@
 
 class mDoDvdThd_toMainRam_c;
 
-#if DEBUG
+#if DEBUG || defined(TARGET_PC)
 class myFontClass : public JUTResFont {
 public:
     myFontClass(const ResFONT* i_font, JKRHeap* i_heap)

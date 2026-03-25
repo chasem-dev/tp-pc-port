@@ -22,7 +22,11 @@ public:
     bool isActive() const;
 
     Z2SoundHandlePool* getHandleSoundID(JAISoundID soundID);
+#ifdef TARGET_PC
+    Z2SoundHandlePool* getHandleUserData(uintptr_t userData);
+#else
     Z2SoundHandlePool* getHandleUserData(u32 userData);
+#endif
 
     void stopAllSounds(u32 fadeTime);
 

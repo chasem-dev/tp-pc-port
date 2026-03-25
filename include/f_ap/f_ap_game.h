@@ -168,7 +168,9 @@ inline void fapGmHIO_onPrint() {
 }
 
 inline u8 fapGmHIO_getParticle() {
-    #if DEBUG
+    #ifdef TARGET_PC
+    return FALSE; /* Particle system not initialized on PC */
+    #elif DEBUG
     return g_HIO.mDisplayParticle;
     #else
     return TRUE;

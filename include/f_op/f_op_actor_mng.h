@@ -15,7 +15,7 @@
 
 #define fopAcM_ct(ptr, ClassName)                                           \
     if (!fopAcM_CheckCondition(ptr, fopAcCnd_INIT_e)) {                     \
-        new (ptr) ClassName();                                              \
+        new (ptr) ClassName;                                                \
         fopAcM_OnCondition(ptr, fopAcCnd_INIT_e);                           \
     }
 
@@ -125,8 +125,16 @@ inline s8 fopAcM_GetRoomNo(const fopAc_ac_c* i_actor) {
     return i_actor->current.roomNo;
 }
 
+inline fpc_ProcID fopAcM_GetID(const fopAc_ac_c* i_actor) {
+    return fpcM_GetID(i_actor);
+}
+
 inline fpc_ProcID fopAcM_GetID(const void* i_actor) {
     return fpcM_GetID(i_actor);
+}
+
+inline s16 fopAcM_GetName(const fopAc_ac_c* i_actor) {
+    return fpcM_GetName(i_actor);
 }
 
 inline s16 fopAcM_GetName(void* i_actor) {
@@ -169,12 +177,24 @@ inline u32 fopAcM_checkHookCarryNow(fopAc_ac_c* i_actor) {
     return fopAcM_CheckStatus(i_actor, fopAcStts_HOOK_CARRY_NOW_e);
 }
 
+inline u32 fopAcM_GetParam(const fopAc_ac_c* i_actor) {
+    return fpcM_GetParam(i_actor);
+}
+
 inline u32 fopAcM_GetParam(const void* i_actor) {
     return fpcM_GetParam(i_actor);
 }
 
+inline u32 fopAcM_GetParamBit(const fopAc_ac_c* ac, u8 shift, u8 bit) {
+    return (fopAcM_GetParam(ac) >> shift) & ((1 << bit) - 1);
+}
+
 inline u32 fopAcM_GetParamBit(void* ac, u8 shift, u8 bit) {
     return (fopAcM_GetParam(ac) >> shift) & ((1 << bit) - 1);
+}
+
+inline void fopAcM_SetParam(fopAc_ac_c* i_actor, u32 param) {
+    fpcM_SetParam(i_actor, param);
 }
 
 inline void fopAcM_SetParam(void* i_actor, u32 param) {
@@ -183,6 +203,10 @@ inline void fopAcM_SetParam(void* i_actor, u32 param) {
 
 inline void fopAcM_SetJntCol(fopAc_ac_c* i_actorP, dJntCol_c* i_jntColP) {
     i_actorP->jntCol = i_jntColP;
+}
+
+inline s16 fopAcM_GetProfName(const fopAc_ac_c* i_actor) {
+    return fpcM_GetProfName(i_actor);
 }
 
 inline s16 fopAcM_GetProfName(const void* i_actor) {
@@ -253,6 +277,10 @@ inline void fopAcM_OffCondition(fopAc_ac_c* i_actor, u32 flag) {
     i_actor->actor_condition &= ~flag;
 }
 
+inline BOOL fopAcM_IsActor(const fopAc_ac_c* actor) {
+    return fopAc_IsActor((void*)actor);
+}
+
 inline BOOL fopAcM_IsActor(void* actor) {
     return fopAc_IsActor(actor);
 }
@@ -315,6 +343,10 @@ inline void fopAcM_SetModel(fopAc_ac_c* actor, J3DModel* model) {
 
 inline J3DModel* fopAcM_GetModel(fopAc_ac_c* actor) {
     return actor->model;
+}
+
+inline fopAcM_prm_class* fopAcM_GetAppend(fopAc_ac_c* actor) {
+    return (fopAcM_prm_class*)fpcM_GetAppend(actor);
 }
 
 inline fopAcM_prm_class* fopAcM_GetAppend(void* actor) {
@@ -493,9 +525,9 @@ void fopAcM_initManager();
 fopAc_ac_c* fopAcM_FastCreate(s16 i_procName, FastCreateReqFunc i_createFunc, void* i_createData,
                               void* i_append);
 
-void fopAcM_setStageLayer(void* i_proc);
+void fopAcM_setStageLayer(fopAc_ac_c* i_proc);
 
-void fopAcM_setRoomLayer(void* i_proc, int i_roomNo);
+void fopAcM_setRoomLayer(fopAc_ac_c* i_proc, int i_roomNo);
 
 s32 fopAcM_SearchByID(fpc_ProcID i_actorID, fopAc_ac_c** i_outActor);
 

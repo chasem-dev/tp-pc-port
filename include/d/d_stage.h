@@ -20,13 +20,20 @@ enum StageType {
 struct dStage_nodeHeader {
     /* 0x0 */ u32 m_tag;
     /* 0x4 */ int m_entryNum;
+#ifdef TARGET_PC
+    /* On 64-bit, m_offset holds a resolved pointer (uintptr_t).
+     * Nodes are stored in a heap-allocated array, NOT overlaid on binary. */
+    /* 0x8 */ uintptr_t m_offset;
+#else
     /* 0x8 */ u32 m_offset;
+#endif
 };
 
 // made up name
 struct dStage_fileHeader {
     /* 0x0 */ int m_chunkCount;
-    /* 0x4 */ dStage_nodeHeader m_nodes[1]; // Variable length
+    /* 0x4 */ dStage_nodeHeader m_nodes[1]; // Variable length (GC binary overlay)
+    /* On PC, m_nodes is NOT used — use dStage_getNodes() instead */
 };
 
 struct stage_vrboxcol_info_class {

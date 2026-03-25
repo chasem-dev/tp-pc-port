@@ -22,7 +22,7 @@ public:
     static void onWarpMaterial(J3DModelData* i_modelData);
     static void offWarpMaterial(J3DModelData* i_modelData);
     static void setWarpSRT(J3DModelData* i_modelData, const cXyz& i_pos, f32 i_transX, f32 i_transY);
-    static J3DModelData* loaderBasicBmd(u32 i_tag, void* i_data);
+    static J3DModelData* loaderBasicBmd(u32 i_tag, void* i_data, u32 i_dataSizeLimit = 0);
     static void dump_long(dRes_info_c* i_resInfo, int i_infoNum);
     static void dump(dRes_info_c* i_resInfo, int i_infoNum);
     static void dumpTag(dRes_info_c*, int, int, int);

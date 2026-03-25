@@ -139,7 +139,11 @@ inline void mDoAud_load2ndDynamicWave() {
 }
 
 inline bool mDoAud_check1stDynamicWave() {
+#ifdef TARGET_PC
+    return false; /* No audio on PC — always report loaded */
+#else
     return Z2AudioMgr::getInterface()->check1stDynamicWave();
+#endif
 }
 
 inline void mDoAud_bgmStop(u32 param_0) {
