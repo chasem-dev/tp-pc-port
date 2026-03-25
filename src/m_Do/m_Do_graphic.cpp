@@ -1751,13 +1751,17 @@ int mDoGph_Painter() {
             fopAc_ac_c* player = dComIfGp_getPlayer(0);
             Vec eye, center, up = {0.0f, 1.0f, 0.0f};
             if (player != NULL) {
-                /* Use player position with wide FOV to see the scene */
-                eye.x = player->current.pos.x;
-                eye.y = player->current.pos.y + 300.0f;
-                eye.z = player->current.pos.z;
-                center.x = player->current.pos.x;
-                center.y = player->current.pos.y;
-                center.z = player->current.pos.z + 300.0f;
+                /* Position camera behind player, looking in +Z direction
+                 * (toward the castle in the opening scene). */
+                f32 px = player->current.pos.x;
+                f32 py = player->current.pos.y;
+                f32 pz = player->current.pos.z;
+                eye.x = px;
+                eye.y = py + 200.0f;
+                eye.z = pz - 800.0f;
+                center.x = px;
+                center.y = py + 50.0f;
+                center.z = pz + 500.0f;
             } else {
                 /* Fallback before player spawns */
                 eye.x = 34941.0f; eye.y = 300.0f; eye.z = -15854.0f;

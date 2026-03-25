@@ -347,9 +347,9 @@ void mDoExt_modelUpdateDL(J3DModel* i_model) {
 
     J3DModelData* model_data = i_model->getModelData();
 #ifdef TARGET_PC
-    /* PC path: always use UNLOCKED mode so that J3DMatPacket::draw()
-     * calls GXLoadTexObj directly. Locked mode uses material display lists
-     * with BP texture commands that reference TMEM addresses (invalid on PC). */
+    /* PC path: always use unlocked mode so J3DMatPacket::draw() calls
+     * GXLoadTexObj for texture loading. Locked mode's material DLs reference
+     * TMEM addresses that don't exist on PC. */
     i_model->unlock();
     i_model->calc();
     i_model->entry();
