@@ -220,6 +220,13 @@ void J3DSys::drawInit() {
 }
 
 void J3DSys::reinitGX() {
+#ifdef TARGET_PC
+    /* Flush and clear any pending vertices before reinit.
+     * reinitTexture calls GXLoadTexObj which flushes vertices — if the
+     * current GX state is in an incomplete/invalid combination from the
+     * previous draw, the flush can trigger a Metal shader compile crash. */
+    GXEnd();
+#endif
     reinitGenMode();
     reinitLighting();
     reinitTransform();
@@ -262,7 +269,20 @@ void J3DSys::reinitTransform() {
     GXSetTexCoordGen(GX_TEXCOORD7, GX_TG_MTX2x4, GX_TG_TEX7, GX_IDENTITY);
 }
 
+#ifdef TARGET_PC
+extern "C" void pc_gx_load_tex_obj_nf(void* obj, u32 mapID);
+#endif
+
 void J3DSys::reinitTexture() {
+#ifdef TARGET_PC
+    /* On PC, GXLoadTexObj triggers a vertex flush which can crash the Metal
+     * shader compiler if the GX state is in an invalid configuration.
+     * Clear texture state directly instead. */
+    for (int i = 0; i < 8; i++) {
+        pc_gx_load_tex_obj_nf(NULL, i);
+    }
+    return;
+#endif
     GXTexObj texObj;
     GXInitTexObj(&texObj, NullTexData, 4, 4, GX_TF_IA8, GX_CLAMP, GX_CLAMP, GX_FALSE);
     GXLoadTexObj(&texObj, GX_TEXMAP0);

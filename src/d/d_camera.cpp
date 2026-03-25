@@ -11040,9 +11040,6 @@ static int camera_draw(camera_process_class* i_this) {
 static int init_phase1(camera_class* i_this) {
     camera_process_class* camera = (camera_process_class*)i_this;
     int camera_id = get_camera_id(i_this);
-#ifdef TARGET_PC
-    fprintf(stderr, "[CAM-INIT1] camera_id=%d camera=%p\n", camera_id, (void*)i_this);
-#endif
     dComIfGp_setCamera(camera_id, i_this);
     fopCamM_SetPrm1(i_this, dComIfGp_getCameraWinID(camera_id));
     fopCamM_SetPrm2(i_this, dComIfGp_getCameraPlayer1ID(camera_id));

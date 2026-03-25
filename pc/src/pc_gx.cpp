@@ -2915,6 +2915,13 @@ void GXInitTexObjLOD(void* obj, u32 minFilt, u32 magFilt, f32 minLOD, f32 maxLOD
     tex->max_aniso = maxAniso;
 }
 
+/* No-flush variant for reinitTexture — just clears the GL texture slot */
+extern "C" void pc_gx_load_tex_obj_nf(void* obj, u32 mapID) {
+    if (mapID >= 8) return;
+    g_gx.gl_textures[mapID] = 0;
+    DIRTY(PC_GX_DIRTY_TEXTURES);
+}
+
 void GXLoadTexObj(void* obj, u32 mapID) {
     pc_platform_ensure_gl_context_current();
     PCTexObj* tex = (PCTexObj*)obj;

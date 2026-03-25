@@ -2093,7 +2093,6 @@ static int dStage_cameraCreate(stage_camera2_data_class* i_cameraData, int i_cam
         return 0;
     }
     fopCamM_prm_class* params = (fopCamM_prm_class*)cMl::memalignB(-4, sizeof(fopCamM_prm_class));
-
     if (params != NULL) {
         params->base.position.x = 0.0f;
         params->base.position.y = 0.0f;
