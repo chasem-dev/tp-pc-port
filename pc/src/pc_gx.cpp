@@ -2637,7 +2637,9 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
 
             int vtx_size = pc_gx_calc_vertex_size(vat_idx);
             u32 data_size = (u32)vtx_count * vtx_size;
-            if (vtx_size == 0 || p + data_size > end || vtx_count > 10000) {
+            if (vtx_size == 0 || p + data_size > end || vtx_count > 5000) {
+                /* Invalid primitive — parser may be misaligned. Skip this byte
+                 * and continue searching for valid commands. Don't break. */
                 if (g_pc_verbose) {
                     static int s_bad_prim_decode = 0;
                     if (s_bad_prim_decode++ < 64) {
