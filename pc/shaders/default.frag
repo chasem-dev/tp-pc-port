@@ -362,6 +362,7 @@ void main() {
 
     fragColor = prev;
 
+
     /* Fog */
     if (u_fog_type != 0) {
         float fog_denom = max(u_fog_end - u_fog_start, 1e-6);

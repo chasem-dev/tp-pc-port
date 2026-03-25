@@ -2164,12 +2164,11 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
 
     const u8* p = (const u8*)list;
     u8* swapped_words_buf = NULL;
-    /* DISABLED: The byte-swap heuristic corrupts display list data more than it
-     * helps. The J3D GD buffer writes are in correct big-endian format via
-     * J3DGDWrite_u32 (byte-by-byte), and shape DLs from BMD files are also
-     * big-endian. The heuristic was swapping data that didn't need swapping,
-     * which caused TEV, color, and matrix registers to be misinterpreted. */
-    if (false && nbytes >= 8 && (nbytes % 4) == 0 &&
+    /* Byte-swap heuristic: detect display lists that were byte-swapped during
+     * BMD deserialization on LE platforms. These DLs have 32-bit words reversed.
+     * Only apply to shape DLs (starts with NOP 0x00), NOT to material GD buffer
+     * data (which starts with 0x61 BP cmd and is already in correct BE format). */
+    if (nbytes >= 8 && (nbytes % 4) == 0 &&
         p[0] == 0x00 && p[2] == 0x00 &&
         ((p[3] & 0x80) != 0 || p[3] == 0x61 || p[3] == 0x10 || p[3] == 0x08))
     {
