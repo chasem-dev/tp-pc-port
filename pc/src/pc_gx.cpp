@@ -1796,55 +1796,12 @@ void pc_gx_flush_vertices(void) {
             static int s_draw_crash_count = 0;
             s_draw_crash_count++;
             if (s_draw_crash_count <= 10) {
-                fprintf(stderr, "[GX] Metal pipeline crash #%d: prim=%d verts=%d pretrans=%d — retrying with simple shader\n",
+                fprintf(stderr, "[GX] Metal pipeline crash #%d: prim=%d verts=%d pretrans=%d — skipping (GL context corrupted after longjmp)\n",
                         s_draw_crash_count, g_gx.current_primitive, count, g_gx.batch_pretransformed);
             }
-            /* Retry with simple shader — it has fewer pipeline state
-             * combinations and doesn't trigger Metal compiler bugs. */
-            GLuint fallback = pc_gx_tev_get_simple_shader();
-            if (fallback && fallback != g_gx.current_shader) {
-                glUseProgram(fallback);
-                g_gx.current_shader = fallback;
-                pc_gx_cache_uniform_locations(fallback);
-                /* Re-upload minimal uniforms for simple shader */
-                float gl_proj[16];
-                proj_to_gl44(g_gx.projection_mtx, g_gx.projection_type, gl_proj);
-                if (g_gx.uloc.projection >= 0) glUniformMatrix4fv(g_gx.uloc.projection, 1, GL_FALSE, gl_proj);
-                float gl_mv[16];
-                if (g_gx.batch_pretransformed) {
-                    static const float ident[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
-                    memcpy(gl_mv, ident, sizeof(gl_mv));
-                } else {
-                    int idx = g_gx.current_mtx / 3;
-                    if (idx < 0 || idx >= 10) idx = 0;
-                    mtx34_to_gl44(g_gx.pos_mtx[idx], gl_mv);
-                }
-                if (g_gx.uloc.modelview >= 0) glUniformMatrix4fv(g_gx.uloc.modelview, 1, GL_FALSE, gl_mv);
-                /* Bind any available texture */
-                GLuint tex0 = g_gx.gl_textures[0] ? g_gx.gl_textures[0] : g_gx.fallback_texture;
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, tex0);
-                if (g_gx.uloc.use_texture[0] >= 0) glUniform1i(g_gx.uloc.use_texture[0], tex0 ? 1 : 0);
-                if (g_gx.uloc.texture[0] >= 0) glUniform1i(g_gx.uloc.texture[0], 0);
-                /* Simple shader stable state */
-                glDisable(GL_CULL_FACE);
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-                jmp_buf retryBuf;
-                jmp_buf* prevRetry = pc_crash_get_jmpbuf();
-                pc_crash_set_jmpbuf(&retryBuf);
-                if (setjmp(retryBuf) == 0) {
-                    if (g_gx.current_primitive == GX_QUADS) {
-                        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_gx.ebo);
-                        glDrawElements(GL_TRIANGLES, (count/4)*6, GL_UNSIGNED_SHORT, 0);
-                    } else {
-                        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_linear_ebo);
-                        glDrawElements(gl_prim, draw_count, GL_UNSIGNED_SHORT, 0);
-                    }
-                }
-                pc_crash_set_jmpbuf(prevRetry);
-            }
+            /* Do NOT retry after longjmp — the GL context is in an undefined
+             * state after Metal's shader compiler crashes. Any GL call risks
+             * a secondary crash. Just skip this draw. */
         }
         pc_crash_set_jmpbuf(prevDrawBuf);
     }
