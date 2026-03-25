@@ -347,10 +347,14 @@ void mDoExt_modelUpdateDL(J3DModel* i_model) {
 
     J3DModelData* model_data = i_model->getModelData();
 #ifdef TARGET_PC
-    /* PC path: always use unlocked mode so J3DMatPacket::draw() calls
-     * GXLoadTexObj for texture loading. Locked mode's material DLs reference
-     * TMEM addresses that don't exist on PC. */
-    i_model->unlock();
+    /* PC path: use locked shared-DL when available for stable material state.
+     * The J3DMatPacket::draw() TARGET_PC block handles texture loading
+     * via GXLoadTexObj after the material DL is replayed. */
+    if (model_data->getMaterialNodePointer(0)->getSharedDisplayListObj() != NULL &&
+        model_data->isLocked() == FALSE)
+    {
+        i_model->lock();
+    }
     i_model->calc();
     i_model->entry();
     i_model->viewCalc();

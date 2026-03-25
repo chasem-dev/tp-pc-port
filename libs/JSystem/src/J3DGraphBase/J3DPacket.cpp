@@ -275,6 +275,9 @@ void J3DMatPacket::draw() {
                 int numStages = tevBlock->getTevStageNum();
                 if (numStages > 8) numStages = 8;
                 bool anyTexLoaded = false;
+
+                /* Load textures referenced by TEV stages to their NATURAL
+                 * map slots (texNo→texNo), matching TEV ORDER expectations. */
                 for (int i = 0; i < numStages; i++) {
                     u16 texNoRaw = tevBlock->getTexNo(i);
                     u16 texNo = texNoRaw;
@@ -304,7 +307,12 @@ void J3DMatPacket::draw() {
                         }
                     }
                     if (texNo != 0xFFFF && texNo < tex->getNum()) {
+                        /* Load to BOTH the stage slot AND the texture's natural slot.
+                         * TEV ORDER may reference by either index. */
                         tex->loadGX(texNo, (GXTexMapID)i);
+                        if ((int)texNo != i && texNo < 8) {
+                            tex->loadGX(texNo, (GXTexMapID)texNo);
+                        }
                         anyTexLoaded = true;
                     }
                 }

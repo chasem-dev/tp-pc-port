@@ -1751,28 +1751,17 @@ int mDoGph_Painter() {
             fopAc_ac_c* player = dComIfGp_getPlayer(0);
             Vec eye, center, up = {0.0f, 1.0f, 0.0f};
             if (player != NULL) {
-                /* Position camera behind and above the player, facing the
-                 * direction the player is oriented. Use player's Y angle. */
+                /* Position camera behind and slightly above player, looking
+                 * toward the castle/bridge area (which is in -X direction). */
                 f32 px = player->current.pos.x;
                 f32 py = player->current.pos.y;
                 f32 pz = player->current.pos.z;
-                s16 ay = player->current.angle.y;
-                f32 yaw = ay * (3.14159265f / 32768.0f);
-                f32 sy = sinf(yaw), cy = cosf(yaw);
-                static int s_cam_pos_log = 0;
-                if (s_cam_pos_log < 3) {
-                    fprintf(stderr, "[PC-CAM] player pos=(%.1f,%.1f,%.1f) angle.y=%d yaw=%.2f sin=%.3f cos=%.3f\n",
-                            px, py, pz, ay, yaw, sy, cy);
-                    s_cam_pos_log++;
-                }
-                /* Camera behind player (opposite of facing direction) */
-                eye.x = px - sy * 1500.0f;
-                eye.y = py + 500.0f;
-                eye.z = pz - cy * 1500.0f;
-                /* Look past player in facing direction */
-                center.x = px + sy * 500.0f;
-                center.y = py;
-                center.z = pz + cy * 500.0f;
+                eye.x = px + 1500.0f;
+                eye.y = py + 300.0f;
+                eye.z = pz - 500.0f;
+                center.x = px - 1000.0f;
+                center.y = py + 100.0f;
+                center.z = pz + 200.0f;
             } else {
                 /* Fallback before player spawns */
                 eye.x = 34941.0f; eye.y = 300.0f; eye.z = -15854.0f;
