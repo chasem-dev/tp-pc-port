@@ -11040,7 +11040,9 @@ static int camera_draw(camera_process_class* i_this) {
 static int init_phase1(camera_class* i_this) {
     camera_process_class* camera = (camera_process_class*)i_this;
     int camera_id = get_camera_id(i_this);
-
+#ifdef TARGET_PC
+    fprintf(stderr, "[CAM-INIT1] camera_id=%d camera=%p\n", camera_id, (void*)i_this);
+#endif
     dComIfGp_setCamera(camera_id, i_this);
     fopCamM_SetPrm1(i_this, dComIfGp_getCameraWinID(camera_id));
     fopCamM_SetPrm2(i_this, dComIfGp_getCameraPlayer1ID(camera_id));
@@ -11061,9 +11063,20 @@ static int init_phase2(camera_class* i_this) {
 
     fopAc_ac_c* player = (fopAc_ac_c*)get_player_actor(i_this);
     if (player == NULL) {
+#ifdef TARGET_PC
+        /* On PC, the player actor may not be created yet.
+         * Allow camera to proceed with default position. */
+        static int s_cam_wait = 0;
+        if (s_cam_wait++ < 60) return cPhs_INIT_e; /* Wait a bit, then proceed without player */
+        fprintf(stderr, "[CAM] Proceeding without player actor after %d waits\n", s_cam_wait);
+#else
         return cPhs_INIT_e;
+#endif
     }
 
+#ifdef TARGET_PC
+    if (player != NULL) {
+#endif
     dBgS_GndChk gndchk;
     cXyz spA4(player->current.pos);
     spA4.y += 50.0f;
@@ -11086,6 +11099,9 @@ static int init_phase2(camera_class* i_this) {
     }
 
     fopAcM_setStageLayer(player);
+#ifdef TARGET_PC
+    }
+#endif
     dComIfGp_setWindowNum(1);
 
     new (body) dCamera_c(i_this);
@@ -11107,7 +11123,15 @@ static int init_phase2(camera_class* i_this) {
     fopCamM_SetFar(i_this, var_f30);
     fopCamM_SetFovy(i_this, 30.0f);
     fopCamM_SetAspect(i_this, mDoGph_gInf_c::getAspect());
+#ifdef TARGET_PC
+    if (player != NULL) {
+        fopCamM_SetCenter(i_this, player->current.pos.x, player->current.pos.y, player->current.pos.z);
+    } else {
+        fopCamM_SetCenter(i_this, 34941.0f, 0.0f, -15554.0f);
+    }
+#else
     fopCamM_SetCenter(i_this, player->current.pos.x, player->current.pos.y, player->current.pos.z);
+#endif
     fopCamM_SetBank(i_this, 0);
 
     store(camera);
@@ -11120,6 +11144,9 @@ static int init_phase2(camera_class* i_this) {
 #endif
     }
     i_this->field_0x238 = 0;
+#ifdef TARGET_PC
+    if (player != NULL)
+#endif
     dComIfGp_getAttention()->Init(player, PAD_1);
     return cPhs_NEXT_e;
 }

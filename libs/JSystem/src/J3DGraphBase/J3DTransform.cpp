@@ -22,7 +22,7 @@ void J3DGQRSetup7(u32 r0, u32 r1, u32 r2, u32 r3) {
 }
 
 // this uses a non-standard sqrtf, not sure why or how its supposed to be setup
-#if !PLATFORM_SHIELD
+#if !PLATFORM_SHIELD && !defined(TARGET_PC)
 inline f32 J3D_sqrtf(__REGISTER f32 x) {
 	__REGISTER f32 recip;
 
@@ -159,6 +159,30 @@ lbl_8005F118:
 	li       r3, 1
 	psq_st   f8, 32(r4), 1, 0
 	blr
+#else
+    /* C fallback: compute inverse transpose of 3x3 upper-left of src */
+    f32 a00=src[0][0], a01=src[0][1], a02=src[0][2];
+    f32 a10=src[1][0], a11=src[1][1], a12=src[1][2];
+    f32 a20=src[2][0], a21=src[2][1], a22=src[2][2];
+
+    /* cofactors (these ARE the inverse transpose rows when divided by det) */
+    f32 c00 = a11*a22 - a12*a21;
+    f32 c01 = a12*a20 - a10*a22;
+    f32 c02 = a10*a21 - a11*a20;
+    f32 c10 = a02*a21 - a01*a22;
+    f32 c11 = a00*a22 - a02*a20;
+    f32 c12 = a01*a20 - a00*a21;
+    f32 c20 = a01*a12 - a02*a11;
+    f32 c21 = a02*a10 - a00*a12;
+    f32 c22 = a00*a11 - a01*a10;
+
+    f32 det = a00*c00 + a01*c01 + a02*c02;
+    if (det == 0.0f) return;
+
+    f32 inv = 1.0f / det;
+    dst[0][0] = c00*inv; dst[0][1] = c01*inv; dst[0][2] = c02*inv;
+    dst[1][0] = c10*inv; dst[1][1] = c11*inv; dst[1][2] = c12*inv;
+    dst[2][0] = c20*inv; dst[2][1] = c21*inv; dst[2][2] = c22*inv;
 #endif // clang-format on
 }
 
@@ -297,7 +321,6 @@ void J3DGetTextureMtxMayaOld(const J3DTextureSRTInfo& srt, Mtx dst) {
 ASM void J3DScaleNrmMtx(__REGISTER Mtx mtx, const __REGISTER Vec& scl) {
 #ifdef __MWERKS__ // clang-format off
 	nofralloc;
-
 	psq_l  fp2, 0(scl), 0, 0
 	psq_l  fp0, 0(mtx), 0, 0
 	lfs    fp3, 8(scl)
@@ -306,8 +329,6 @@ ASM void J3DScaleNrmMtx(__REGISTER Mtx mtx, const __REGISTER Vec& scl) {
 	psq_st f4, 0(mtx), 0, 0
 	fmuls  f4, fp1, fp3
 	stfs   f4, 8(mtx)
-
-	/* Row 1 */
 	psq_l  fp2, 0(scl), 0, 0
 	psq_l  fp0, 16(mtx), 0, 0
 	lfs    fp3, 8(scl)
@@ -316,8 +337,6 @@ ASM void J3DScaleNrmMtx(__REGISTER Mtx mtx, const __REGISTER Vec& scl) {
 	psq_st f4, 16(mtx), 0, 0
 	fmuls  f4, fp1, fp3
 	stfs   f4, 24(mtx)
-
-	/* Row 2 */
 	psq_l  fp2, 0(scl), 0, 0
 	psq_l  fp0, 32(mtx), 0, 0
 	lfs    fp3, 8(scl)
@@ -327,6 +346,12 @@ ASM void J3DScaleNrmMtx(__REGISTER Mtx mtx, const __REGISTER Vec& scl) {
 	fmuls  f4, fp1, fp3
 	stfs   f4, 40(mtx)
 	blr
+#else
+    for (int i = 0; i < 3; i++) {
+        mtx[i][0] *= scl.x;
+        mtx[i][1] *= scl.y;
+        mtx[i][2] *= scl.z;
+    }
 #endif // clang-format on
 }
 
@@ -353,6 +378,12 @@ ASM void J3DScaleNrmMtx33(__REGISTER Mtx33 mtx, const __REGISTER Vec& scale) {
 	psq_st   f4, 24(mtx), 0, 0
 	stfs     f5, 0x20(mtx)
 	blr
+#else
+    for (int i = 0; i < 3; i++) {
+        mtx[i][0] *= scale.x;
+        mtx[i][1] *= scale.y;
+        mtx[i][2] *= scale.z;
+    }
 #endif // clang-format on
 }
 
@@ -431,6 +462,16 @@ ASM void J3DMtxProjConcat(__REGISTER Mtx mtx1, __REGISTER Mtx mtx2, __REGISTER M
 	ps_madd  f0, f9, f13, f0
 	psq_st   f0, 40(dst), 0, 0
 	blr
+#else
+    /* C fallback: 3x4 × 4x4 matrix multiply (mtx2 is treated as 4x4, row-major) */
+    const f32 (*b)[4] = (const f32(*)[4])mtx2;
+    for (int i = 0; i < 3; i++) {
+        f32 a0 = mtx1[i][0], a1 = mtx1[i][1], a2 = mtx1[i][2], a3 = mtx1[i][3];
+        dst[i][0] = a0*b[0][0] + a1*b[1][0] + a2*b[2][0] + a3*b[3][0];
+        dst[i][1] = a0*b[0][1] + a1*b[1][1] + a2*b[2][1] + a3*b[3][1];
+        dst[i][2] = a0*b[0][2] + a1*b[1][2] + a2*b[2][2] + a3*b[3][2];
+        dst[i][3] = a0*b[0][3] + a1*b[1][3] + a2*b[2][3] + a3*b[3][3];
+    }
 #endif // clang-format on
 }
 

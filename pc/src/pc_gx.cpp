@@ -1158,20 +1158,23 @@ static void mtx34_to_gl44(const float src[3][4], float dst[16]) {
     dst[12] = src[0][3]; dst[13] = src[1][3]; dst[14] = src[2][3]; dst[15] = 1.0f;
 }
 
-/* Convert GX projection to GL 4x4 column-major */
+/* Convert GX projection to GL 4x4 column-major.
+ * GX maps Z to NDC [0,1]; OpenGL 3.3 maps Z to NDC [-1,1].
+ * Remap: z_gl = 2*z_gx - 1, so Z coefficients must be adjusted:
+ *   perspective: dst[10] = 2*src[2][2] + 1, dst[14] = 2*src[2][3]
+ *   orthographic: dst[10] = 2*src[2][2], dst[14] = 2*src[2][3] - 1 */
 static void proj_to_gl44(const float src[4][4], int type, float dst[16]) {
     if (type == GX_PERSPECTIVE) {
-        /* GX perspective: src is 4x4 but stored differently from GL */
-        dst[ 0] = src[0][0]; dst[ 1] = 0;          dst[ 2] = 0;           dst[ 3] = 0;
-        dst[ 4] = 0;         dst[ 5] = src[1][1];   dst[ 6] = 0;           dst[ 7] = 0;
-        dst[ 8] = src[0][2]; dst[ 9] = src[1][2];   dst[10] = src[2][2];   dst[11] = -1.0f;
-        dst[12] = 0;         dst[13] = 0;           dst[14] = src[2][3];   dst[15] = 0;
+        dst[ 0] = src[0][0]; dst[ 1] = 0;          dst[ 2] = 0;                     dst[ 3] = 0;
+        dst[ 4] = 0;         dst[ 5] = src[1][1];   dst[ 6] = 0;                     dst[ 7] = 0;
+        dst[ 8] = src[0][2]; dst[ 9] = src[1][2];   dst[10] = 2*src[2][2] + 1.0f;    dst[11] = -1.0f;
+        dst[12] = 0;         dst[13] = 0;           dst[14] = 2*src[2][3];            dst[15] = 0;
     } else {
         /* GX orthographic */
-        dst[ 0] = src[0][0]; dst[ 1] = 0;          dst[ 2] = 0;           dst[ 3] = 0;
-        dst[ 4] = 0;         dst[ 5] = src[1][1];   dst[ 6] = 0;           dst[ 7] = 0;
-        dst[ 8] = 0;         dst[ 9] = 0;           dst[10] = src[2][2];   dst[11] = 0;
-        dst[12] = src[0][3]; dst[13] = src[1][3];   dst[14] = src[2][3];   dst[15] = 1.0f;
+        dst[ 0] = src[0][0]; dst[ 1] = 0;          dst[ 2] = 0;                     dst[ 3] = 0;
+        dst[ 4] = 0;         dst[ 5] = src[1][1];   dst[ 6] = 0;                     dst[ 7] = 0;
+        dst[ 8] = 0;         dst[ 9] = 0;           dst[10] = 2*src[2][2];            dst[11] = 0;
+        dst[12] = src[0][3]; dst[13] = src[1][3];   dst[14] = 2*src[2][3] - 1.0f;    dst[15] = 1.0f;
     }
 }
 
@@ -2279,6 +2282,35 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
                     }
                     DIRTY(PC_GX_DIRTY_TEXGEN);
                 }
+            } else if (data_count == 1) {
+                /* Single XF register writes — material/lighting config from J3DGDWriteXFCmd */
+                u32 val = read_be32(p + 5);
+                switch (xf_addr) {
+                case 0x1009: /* XF_NUMCHANS */
+                    g_gx.num_chans = val & 0x3;
+                    DIRTY(PC_GX_DIRTY_LIGHTING);
+                    break;
+                case 0x100E:   /* XF_COLOR0CNTRL */
+                case 0x100F:   /* XF_COLOR1CNTRL */
+                case 0x1010:   /* XF_ALPHA0CNTRL */
+                case 0x1011: { /* XF_ALPHA1CNTRL */
+                    int idx = xf_addr - 0x100E; /* 0..3 maps to chan ctrl indices */
+                    if (idx >= 0 && idx < 4) {
+                        g_gx.chan_ctrl_enable[idx] = (val >> 1) & 1;
+                        g_gx.chan_ctrl_amb_src[idx] = val & 1;
+                        g_gx.chan_ctrl_mat_src[idx] = val & 1;
+                        g_gx.chan_ctrl_light_mask[idx] = ((val >> 2) & 0xF) | (((val >> 11) & 0xF) << 4);
+                        DIRTY(PC_GX_DIRTY_LIGHTING);
+                    }
+                    break;
+                }
+                case 0x103F: /* XF_NUMTEXGENS */
+                    g_gx.num_tex_gens = val & 0xF;
+                    DIRTY(PC_GX_DIRTY_TEXGEN);
+                    break;
+                default:
+                    break;
+                }
             }
             p += 5 + data_bytes;
         } else if (cmd >= 0x20 && cmd <= 0x3F) {
@@ -2619,6 +2651,10 @@ void GXLoadPosMtxImm(const void* mtx, u32 id) {
     DIRTY(PC_GX_DIRTY_MODELVIEW);
 }
 void GXLoadNrmMtxImm(const void* mtx, u32 id) {
+    if (id / 3 < 10) memcpy(g_gx.nrm_mtx[id / 3], mtx, 36);
+    DIRTY(PC_GX_DIRTY_MODELVIEW);
+}
+void GXLoadNrmMtxImm3x3(const void* mtx, u32 id) {
     if (id / 3 < 10) memcpy(g_gx.nrm_mtx[id / 3], mtx, 36);
     DIRTY(PC_GX_DIRTY_MODELVIEW);
 }
@@ -3000,20 +3036,42 @@ void GXCopyTex(void* dest, u32 clear) { (void)dest; (void)clear; }
 /* Channels / Lighting */
 void GXSetNumChans(u32 nChans) { g_gx.num_chans = nChans; DIRTY(PC_GX_DIRTY_LIGHTING); }
 void GXSetChanMatColor(u32 chan, u32 color) {
-    if (chan < 2) {
-        g_gx.chan_mat_color[chan][0] = GXCOLOR_R(color) / 255.0f;
-        g_gx.chan_mat_color[chan][1] = GXCOLOR_G(color) / 255.0f;
-        g_gx.chan_mat_color[chan][2] = GXCOLOR_B(color) / 255.0f;
-        g_gx.chan_mat_color[chan][3] = GXCOLOR_A(color) / 255.0f;
+    /* GX channel IDs: 0=COLOR0, 1=COLOR1, 2=ALPHA0, 3=ALPHA1,
+     * 4=COLOR0A0 (sets both 0 and 1), 5=COLOR1A1 (sets both 2 and 3) */
+    float r = GXCOLOR_R(color) / 255.0f;
+    float g = GXCOLOR_G(color) / 255.0f;
+    float b = GXCOLOR_B(color) / 255.0f;
+    float a = GXCOLOR_A(color) / 255.0f;
+    if (chan == 4) { /* GX_COLOR0A0 */
+        g_gx.chan_mat_color[0][0] = r; g_gx.chan_mat_color[0][1] = g;
+        g_gx.chan_mat_color[0][2] = b; g_gx.chan_mat_color[0][3] = a;
+        DIRTY(PC_GX_DIRTY_LIGHTING);
+    } else if (chan == 5) { /* GX_COLOR1A1 */
+        g_gx.chan_mat_color[1][0] = r; g_gx.chan_mat_color[1][1] = g;
+        g_gx.chan_mat_color[1][2] = b; g_gx.chan_mat_color[1][3] = a;
+        DIRTY(PC_GX_DIRTY_LIGHTING);
+    } else if (chan < 2) {
+        g_gx.chan_mat_color[chan][0] = r; g_gx.chan_mat_color[chan][1] = g;
+        g_gx.chan_mat_color[chan][2] = b; g_gx.chan_mat_color[chan][3] = a;
         DIRTY(PC_GX_DIRTY_LIGHTING);
     }
 }
 void GXSetChanAmbColor(u32 chan, u32 color) {
-    if (chan < 2) {
-        g_gx.chan_amb_color[chan][0] = GXCOLOR_R(color) / 255.0f;
-        g_gx.chan_amb_color[chan][1] = GXCOLOR_G(color) / 255.0f;
-        g_gx.chan_amb_color[chan][2] = GXCOLOR_B(color) / 255.0f;
-        g_gx.chan_amb_color[chan][3] = GXCOLOR_A(color) / 255.0f;
+    float r = GXCOLOR_R(color) / 255.0f;
+    float g = GXCOLOR_G(color) / 255.0f;
+    float b = GXCOLOR_B(color) / 255.0f;
+    float a = GXCOLOR_A(color) / 255.0f;
+    if (chan == 4) { /* GX_COLOR0A0 */
+        g_gx.chan_amb_color[0][0] = r; g_gx.chan_amb_color[0][1] = g;
+        g_gx.chan_amb_color[0][2] = b; g_gx.chan_amb_color[0][3] = a;
+        DIRTY(PC_GX_DIRTY_LIGHTING);
+    } else if (chan == 5) { /* GX_COLOR1A1 */
+        g_gx.chan_amb_color[1][0] = r; g_gx.chan_amb_color[1][1] = g;
+        g_gx.chan_amb_color[1][2] = b; g_gx.chan_amb_color[1][3] = a;
+        DIRTY(PC_GX_DIRTY_LIGHTING);
+    } else if (chan < 2) {
+        g_gx.chan_amb_color[chan][0] = r; g_gx.chan_amb_color[chan][1] = g;
+        g_gx.chan_amb_color[chan][2] = b; g_gx.chan_amb_color[chan][3] = a;
         DIRTY(PC_GX_DIRTY_LIGHTING);
     }
 }

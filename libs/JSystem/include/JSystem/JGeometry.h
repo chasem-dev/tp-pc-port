@@ -41,26 +41,25 @@ struct TUtil<f32> {
     static inline f32 epsilon() { return 32.0f * FLT_EPSILON; }
     static inline f32 PI() { return 3.1415927f; }
     static inline f32 inv_sqrt(f32 x) {
-        #ifdef __MWERKS__
-        if (x <= 0.0f) {
-            return x;
-        }
+        if (x <= 0.0f) return x;
+#ifdef __MWERKS__
         f32 root = __frsqrte(x);
         root = 0.5f * root * (3.0f - x * (root * root));
         return root;
-        #endif
+#else
+        return 1.0f / sqrtf(x);
+#endif
     }
 
     static inline f32 sqrt(f32 x) {
-        #ifdef __MWERKS__
-        if (x <= 0.0f) {
-            return x;
-        }
-
+        if (x <= 0.0f) return x;
+#ifdef __MWERKS__
         f32 root = __frsqrte(x);
         root = 0.5f * root * (3.0f - x * (root * root));
         return x * root;
-        #endif
+#else
+        return sqrtf(x);
+#endif
     }
 };
 
@@ -136,13 +135,16 @@ inline void setTVec3f(const __REGISTER f32* vec_a, __REGISTER f32* vec_b) {
 #ifdef __MWERKS__
     __REGISTER f32 a_x;
     __REGISTER f32 b_x;
-
     asm {
         psq_l a_x, 0(vec_a), 0, 0
         lfs b_x, 8(vec_a)
         psq_st a_x, 0(vec_b), 0, 0
         stfs b_x, 8(vec_b)
     };
+#else
+    vec_b[0] = vec_a[0];
+    vec_b[1] = vec_a[1];
+    vec_b[2] = vec_a[2];
 #endif
 }
 
@@ -152,10 +154,13 @@ inline void setTVec3f(const Vec& vec_a, Vec& vec_b) {
 }
 
 inline float fsqrt_step(float mag) {
-    #ifdef __MWERKS__
+#ifdef __MWERKS__
     f32 root = __frsqrte(mag);
     return 0.5f * root * (3.0f - mag * (root * root));
-    #endif
+#else
+    if (mag <= 0.0f) return 0.0f;
+    return 1.0f / sqrtf(mag);
+#endif
 }
 
 inline void mulInternal(__REGISTER const f32* a, __REGISTER const f32* b, __REGISTER float* dst) {
@@ -166,13 +171,16 @@ inline void mulInternal(__REGISTER const f32* a, __REGISTER const f32* b, __REGI
     __REGISTER f32 za;
     __REGISTER f32 zb;
     __REGISTER f32 z;
-
     asm {
         psq_l  a_x_y, 0(a), 0, 0
         psq_l  b_x_y, 0(b), 0, 0
         ps_mul x_y, a_x_y, b_x_y
         psq_st x_y, 0(dst), 0, 0
     };
+    dst[2] = a[2] * b[2];
+#else
+    dst[0] = a[0] * b[0];
+    dst[1] = a[1] * b[1];
     dst[2] = a[2] * b[2];
 #endif
 }
@@ -342,7 +350,6 @@ struct TVec3<f32> : public Vec {
         const __REGISTER f32* src = &x;
         __REGISTER f32 x_y;
         __REGISTER f32 z;
-
         asm {
             psq_l  x_y, 0(src), 0, 0
             ps_neg x_y, x_y
@@ -351,6 +358,10 @@ struct TVec3<f32> : public Vec {
             fneg   z,   z
             stfs   z,   8(rdst)
         };
+#else
+        dst->x = -x;
+        dst->y = -y;
+        dst->z = -z;
 #endif
     }
 

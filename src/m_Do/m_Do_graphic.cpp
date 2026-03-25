@@ -1719,6 +1719,19 @@ int mDoGph_Painter() {
         camera_process_class* camera_p = dComIfGp_getCamera(camera_id);
 
 #ifdef TARGET_PC
+        /* If getCamera returns NULL, try searching for a camera process directly.
+         * The camera actor may exist but init_phase1 didn't register it. */
+        if (camera_p == NULL) {
+            camera_p = (camera_process_class*)fpcM_SearchByName(fpcNm_CAMERA_e);
+            if (camera_p != NULL) {
+                static bool s_logged_cam_search = false;
+                if (!s_logged_cam_search) {
+                    fprintf(stderr, "[PC] Found camera via search: %p\n", (void*)camera_p);
+                    s_logged_cam_search = true;
+                }
+                dComIfGp_setCamera(camera_id, (camera_class*)camera_p);
+            }
+        }
         /* If no camera actor exists, create a default view so 3D models can render.
          * This happens during the opening scene when the camera actor fails to create. */
         static u8 s_defaultCameraStorage[sizeof(camera_process_class)] __attribute__((aligned(16)));

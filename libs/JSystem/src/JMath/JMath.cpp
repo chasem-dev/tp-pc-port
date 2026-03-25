@@ -21,24 +21,26 @@ void JMAEulerToQuat(s16 x, s16 y, s16 z, Quaternion* quat) {
 
 void JMAQuatLerp(__REGISTER const Quaternion* p, __REGISTER const Quaternion* q, f32 t,
                  Quaternion* dst) {
+    f32 local_78;
+#ifdef __MWERKS__ // clang-format off
     __REGISTER f32 pxy, pzw, qxy, qzw;
     __REGISTER f32 dp;
-
-#ifdef __MWERKS__ // clang-format off    
     // compute dot product
     asm {
         psq_l       pxy, 0(p), 0, 0
         psq_l       qxy, 0(q), 0, 0
         ps_mul      dp, pxy, qxy
-        
+
         psq_l       pzw, 8(p), 0, 0
         psq_l       qzw, 8(q), 0, 0
         ps_madd     dp, pzw, qzw, dp
-        
+
         ps_sum0     dp, dp, dp, dp
     }
+    local_78 = dp;
+#else
+    local_78 = p->x*q->x + p->y*q->y + p->z*q->z + p->w*q->w;
 #endif // clang-format on
-    f32 local_78 = dp;
     if (local_78 < 0.0) {
         int unused;
         dst->x = -t * (p->x + q->x) + p->x;
@@ -54,8 +56,8 @@ void JMAQuatLerp(__REGISTER const Quaternion* p, __REGISTER const Quaternion* q,
 }
 
 void JMAFastVECNormalize(__REGISTER const Vec* src, __REGISTER Vec* dst) {
-    __REGISTER f32 vxy, rxy, vz, length;
 #ifdef __MWERKS__  // clang-format off
+    __REGISTER f32 vxy, rxy, vz, length;
 	asm {
 		psq_l vxy, 0(src), 0, 0
 		ps_mul rxy, vxy, vxy
@@ -68,15 +70,23 @@ void JMAFastVECNormalize(__REGISTER const Vec* src, __REGISTER Vec* dst) {
 		fmuls vz, vz, length
 		stfs vz, dst->z
 	}
+#else
+    f32 len = src->x*src->x + src->y*src->y + src->z*src->z;
+    if (len > 0.0f) {
+        f32 inv = 1.0f / __builtin_sqrtf(len);
+        dst->x = src->x * inv;
+        dst->y = src->y * inv;
+        dst->z = src->z * inv;
+    } else {
+        dst->x = dst->y = dst->z = 0.0f;
+    }
 #endif  // clang-format on
 }
 
 void JMAVECScaleAdd(__REGISTER const Vec* vec1, __REGISTER const Vec* vec2, __REGISTER Vec* dst,
                     __REGISTER f32 scale) {
-    __REGISTER f32 v1xy;
-    __REGISTER f32 v2xy;
-    __REGISTER f32 rxy, v1z, v2z, rz;
 #ifdef __MWERKS__  // clang-format off
+    __REGISTER f32 v1xy, v2xy, rxy, v1z, v2z, rz;
 	asm {
         psq_l v1xy, 0(vec1), 0, 0
         psq_l v2xy, 0(vec2), 0, 0
@@ -88,15 +98,19 @@ void JMAVECScaleAdd(__REGISTER const Vec* vec1, __REGISTER const Vec* vec2, __RE
         ps_madds0 rz, v1z,  scale, v2z
         psq_st rz, 8(dst), 1, 0
 	}
+#else
+    dst->x = vec1->x * scale + vec2->x;
+    dst->y = vec1->y * scale + vec2->y;
+    dst->z = vec1->z * scale + vec2->z;
 #endif  // clang-format on
 }
 
 void JMAMTXApplyScale(__REGISTER const Mtx src, __REGISTER Mtx dst, __REGISTER f32 xScale,
                       __REGISTER f32 yScale, __REGISTER f32 zScale) {
+#ifdef __MWERKS__  // clang-format off
     __REGISTER f32 scale = yScale;
     __REGISTER f32 x, y, z;
     __REGISTER f32 normal = 1.0f;
-#ifdef __MWERKS__  // clang-format off
     asm {
         // scale first 2 components
         ps_merge00 scale, xScale, scale
@@ -121,6 +135,14 @@ void JMAMTXApplyScale(__REGISTER const Mtx src, __REGISTER Mtx dst, __REGISTER f
         psq_st x, 8(dst), 0, 0
         psq_st y, 24(dst), 0, 0
         psq_st z, 40(dst), 0, 0
+    }
+#else
+    /* C fallback: scale columns 0,1,2 by xScale,yScale,zScale; column 3 unchanged */
+    for (int i = 0; i < 3; i++) {
+        dst[i][0] = src[i][0] * xScale;
+        dst[i][1] = src[i][1] * yScale;
+        dst[i][2] = src[i][2] * zScale;
+        dst[i][3] = src[i][3];
     }
 #endif  // clang-format on
 }

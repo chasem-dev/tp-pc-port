@@ -109,6 +109,12 @@ void J3DTexMtxInfo::setEffectMtx(Mtx param_0) {
     };
     mEffectMtx[3][2] = 0.0f;
     mEffectMtx[3][3] = 1.0f;
+#else
+    memcpy(&mEffectMtx, param_0, sizeof(Mtx));
+    mEffectMtx[3][0] = 0.0f;
+    mEffectMtx[3][1] = 0.0f;
+    mEffectMtx[3][2] = 0.0f;
+    mEffectMtx[3][3] = 1.0f;
 #endif
 }
 

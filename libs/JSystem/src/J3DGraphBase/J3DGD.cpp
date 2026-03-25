@@ -608,6 +608,13 @@ void J3DGDSetFogRangeAdj(GXBool enable, u16 center, GXFogAdjTable* table) {
 }
 
 void J3DFifoLoadPosMtxImm(MtxP mtx, u32 id) {
+#ifdef TARGET_PC
+    /* On PC, GXCmd* functions are no-ops (no FIFO hardware).
+     * Redirect to GXLoadPosMtxImm which updates pos_mtx[] directly.
+     * Also set current matrix so display lists without PNMTXIDX use it. */
+    GXLoadPosMtxImm(mtx, id);
+    GXSetCurrentMtx(id);
+#else
     J3DFifoWriteXFCmdHdr(4 * id, 12);
     J3DGXCmd1f32ptr(&mtx[0][0]);
     J3DGXCmd1f32ptr(&mtx[0][1]);
@@ -621,9 +628,21 @@ void J3DFifoLoadPosMtxImm(MtxP mtx, u32 id) {
     J3DGXCmd1f32ptr(&mtx[2][1]);
     J3DGXCmd1f32ptr(&mtx[2][2]);
     J3DGXCmd1f32ptr(&mtx[2][3]);
+#endif
 }
 
 void J3DFifoLoadNrmMtxImm(MtxP mtx, u32 id) {
+#ifdef TARGET_PC
+    /* Extract 3x3 rotation from 3x4 matrix for normal matrix.
+     * GXLoadNrmMtxImm3x3 copies 36 bytes contiguously, but the source is
+     * a 3x4 matrix (48 bytes) — we need to strip the translation column. */
+    float nrm33[3][3] = {
+        { mtx[0][0], mtx[0][1], mtx[0][2] },
+        { mtx[1][0], mtx[1][1], mtx[1][2] },
+        { mtx[2][0], mtx[2][1], mtx[2][2] },
+    };
+    GXLoadNrmMtxImm3x3(nrm33, id);
+#else
     J3DFifoWriteXFCmdHdr(id * 3 + 0x400, 9);
     J3DGXCmd1f32ptr(&mtx[0][0]);
     J3DGXCmd1f32ptr(&mtx[0][1]);
@@ -634,9 +653,13 @@ void J3DFifoLoadNrmMtxImm(MtxP mtx, u32 id) {
     J3DGXCmd1f32ptr(&mtx[2][0]);
     J3DGXCmd1f32ptr(&mtx[2][1]);
     J3DGXCmd1f32ptr(&mtx[2][2]);
+#endif
 }
 
 void J3DFifoLoadNrmMtxImm3x3(Mtx3P mtx, u32 id) {
+#ifdef TARGET_PC
+    GXLoadNrmMtxImm3x3(mtx, id);
+#else
     J3DFifoWriteXFCmdHdr(id * 3 + 0x400, 9);
     J3DGXCmd1f32ptr(&mtx[0][0]);
     J3DGXCmd1f32ptr(&mtx[0][1]);
@@ -647,9 +670,20 @@ void J3DFifoLoadNrmMtxImm3x3(Mtx3P mtx, u32 id) {
     J3DGXCmd1f32ptr(&mtx[2][0]);
     J3DGXCmd1f32ptr(&mtx[2][1]);
     J3DGXCmd1f32ptr(&mtx[2][2]);
+#endif
 }
 
 void J3DFifoLoadNrmMtxToTexMtx(MtxP mtx, u32 id) {
+#ifdef TARGET_PC
+    /* Load rotation part of 3x4 matrix into a texture matrix slot,
+     * with translation zeroed out. */
+    float tex34[3][4] = {
+        { mtx[0][0], mtx[0][1], mtx[0][2], 0.0f },
+        { mtx[1][0], mtx[1][1], mtx[1][2], 0.0f },
+        { mtx[2][0], mtx[2][1], mtx[2][2], 0.0f },
+    };
+    GXLoadTexMtxImm(tex34, id, GX_MTX3x4);
+#else
     J3DFifoWriteXFCmdHdr(4 * id, 12);
     J3DGXCmd1f32ptr(&mtx[0][0]);
     J3DGXCmd1f32ptr(&mtx[0][1]);
@@ -663,9 +697,18 @@ void J3DFifoLoadNrmMtxToTexMtx(MtxP mtx, u32 id) {
     J3DGXCmd1f32ptr(&mtx[2][1]);
     J3DGXCmd1f32ptr(&mtx[2][2]);
     J3DGXCmd1f32(0.0f);
+#endif
 }
 
 void J3DFifoLoadNrmMtxToTexMtx3x3(Mtx3P mtx, u32 id) {
+#ifdef TARGET_PC
+    float tex34[3][4] = {
+        { mtx[0][0], mtx[0][1], mtx[0][2], 0.0f },
+        { mtx[1][0], mtx[1][1], mtx[1][2], 0.0f },
+        { mtx[2][0], mtx[2][1], mtx[2][2], 0.0f },
+    };
+    GXLoadTexMtxImm(tex34, id, GX_MTX3x4);
+#else
     J3DFifoWriteXFCmdHdr(4 * id, 0xc);
     J3DGXCmd1f32ptr(&mtx[0][0]);
     J3DGXCmd1f32ptr(&mtx[0][1]);
@@ -679,6 +722,7 @@ void J3DFifoLoadNrmMtxToTexMtx3x3(Mtx3P mtx, u32 id) {
     J3DGXCmd1f32ptr(&mtx[2][1]);
     J3DGXCmd1f32ptr(&mtx[2][2]);
     J3DGXCmd1f32(0.0f);
+#endif
 }
 
 static u8 J3DTexImage1Ids[8] = {

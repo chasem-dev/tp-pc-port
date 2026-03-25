@@ -851,9 +851,9 @@ u8 const JUTResFONT_Ascfont_fix16[16] = {0};
 
 #ifndef __MWERKS__
 void J3DPSMtxArrayConcat(Mtx mA, Mtx mB, Mtx mAB, u32 count) {
-    /* Each iteration: mAB[i] = mA[i] * mB[i], where matrices are 3x4 */
+    /* Each iteration: mAB[i] = mA × mB[i] (mA is constant for all iterations) */
     for (u32 i = 0; i < count; i++) {
-        f32 (*a)[4] = (f32(*)[4])((u8*)mA + i * 48);
+        f32 (*a)[4] = (f32(*)[4])mA;
         f32 (*b)[4] = (f32(*)[4])((u8*)mB + i * 48);
         f32 (*ab)[4] = (f32(*)[4])((u8*)mAB + i * 48);
         f32 tmp[3][4];
