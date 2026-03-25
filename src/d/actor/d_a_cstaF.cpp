@@ -296,8 +296,19 @@ static int daCstaF_Delete(daCstaF_c* a_this) {
 void daCstaF_c::setRoomInfo() {
     int room_no;
     if (m_acch.GetGroundH() != -G_CM3D_F_INF) {
+#ifdef TARGET_PC
+        /* Guard against uninitialized background poly — on PC the collision
+         * system may not be fully initialized during early creation. */
+        if (m_acch.m_gnd.ChkSetInfo()) {
+            room_no = dComIfG_Bgsp().GetRoomId(m_acch.m_gnd);
+            tevStr.YukaCol = dComIfG_Bgsp().GetPolyColor(m_acch.m_gnd);
+        } else {
+            room_no = dComIfGp_roomControl_getStayNo();
+        }
+#else
         room_no = dComIfG_Bgsp().GetRoomId(m_acch.m_gnd);
         tevStr.YukaCol = dComIfG_Bgsp().GetPolyColor(m_acch.m_gnd);
+#endif
     } else {
         room_no = dComIfGp_roomControl_getStayNo();
     }

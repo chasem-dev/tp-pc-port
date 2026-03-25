@@ -27,6 +27,12 @@ u8 g_printOtherHeapDebug;
 #include "m_Do/m_Do_mtx.h"
 #include <cstdio>
 #include <cstring>
+#ifdef TARGET_PC
+#include <setjmp.h>
+extern "C" void pc_crash_set_jmpbuf(jmp_buf* buf);
+extern "C" jmp_buf* pc_crash_get_jmpbuf(void);
+extern "C" uintptr_t pc_crash_get_addr(void);
+#endif
 
 u8 mDoExt::CurrentHeapAdjustVerbose;
 u8 mDoExt::HeapAdjustVerbose;
@@ -211,6 +217,12 @@ void dummy3(J3DModel* i_model, void* i_bva, bool i_modify) {
 
 int mDoExt_bckAnm::init(J3DAnmTransform* i_bck, int i_play, int i_attr, f32 i_rate,
                         s16 i_startF, s16 i_endF, bool i_modify) {
+#ifdef TARGET_PC
+    if (i_bck == NULL) {
+        fprintf(stderr, "[ANM] mDoExt_bckAnm::init: NULL animation pointer, skipping\n");
+        return 0;
+    }
+#endif
     JUT_ASSERT(614, (i_modify || isCurrentSolidHeap()) && i_bck != NULL);
     mAnmTransform = i_bck;
     if (!i_modify) {
@@ -317,7 +329,6 @@ void mDoExt_modelUpdate(J3DModel* i_model) {
     modelMtxErrorCheck(i_model);
 
     J3DModelData* model_data = i_model->getModelData();
-
     if (model_data->getMaterialNodePointer(0)->getSharedDisplayListObj() != NULL &&
         !model_data->isLocked())
     {
@@ -335,7 +346,25 @@ void mDoExt_modelUpdateDL(J3DModel* i_model) {
     modelMtxErrorCheck(i_model);
 
     J3DModelData* model_data = i_model->getModelData();
+#ifdef TARGET_PC
+    /* PC path: use locked shared-DL entry when available.
+     * This avoids unstable material-diff execution on partially reconstructed
+     * TEV state and keeps draw-time material loads on prebuilt DLs. */
+    if (model_data->getMaterialNodePointer(0)->getSharedDisplayListObj() != NULL &&
+        model_data->isLocked() == FALSE)
+    {
+        i_model->lock();
+        i_model->calc();
+        i_model->entry();
+    } else {
+        i_model->unlock();
+        i_model->update();
+        i_model->lock();
+    }
 
+    i_model->viewCalc();
+    return;
+#endif
     if (model_data->getMaterialNodePointer(0)->getSharedDisplayListObj() != NULL &&
         !model_data->isLocked())
     {
@@ -354,7 +383,23 @@ void mDoExt_modelEntryDL(J3DModel* i_model) {
     modelMtxErrorCheck(i_model);
 
     J3DModelData* model_data = i_model->getModelData();
-
+#ifdef TARGET_PC
+    if (model_data->getMaterialNodePointer(0)->getSharedDisplayListObj() != NULL &&
+        model_data->isLocked() == FALSE)
+    {
+        /* Keep entry path aligned with update path on PC; material-diff path can
+         * drop shared-DL models (opening BG) from actual draw submission. */
+        i_model->lock();
+        i_model->calc();
+        i_model->entry();
+    } else {
+        i_model->unlock();
+        i_model->entry();
+        i_model->lock();
+    }
+    i_model->viewCalc();
+    return;
+#endif
     if (model_data->getMaterialNodePointer(0)->getSharedDisplayListObj() != NULL &&
         !model_data->isLocked())
     {
@@ -873,6 +918,18 @@ JKRSolidHeap* mDoExt_createSolidHeap(u32 i_size, JKRHeap* i_parent, u32 i_alignm
     }
 
     JKRSolidHeap* createdHeap;
+#ifdef TARGET_PC
+    jmp_buf createBuf;
+    jmp_buf* prevBuf = pc_crash_get_jmpbuf();
+    pc_crash_set_jmpbuf(&createBuf);
+    if (setjmp(createBuf) != 0) {
+        pc_crash_set_jmpbuf(prevBuf);
+        fprintf(stderr,
+                "[HEAP] createSolidHeap recovered from crash addr=%p parent=%p req=%u align=%u\n",
+                (void*)pc_crash_get_addr(), (void*)i_parent, i_size, i_alignment);
+        return NULL;
+    }
+#endif
     if (i_size == 0 || i_size == -1) {
         #if DEBUG
         if (mDoExt::HeapAdjustVerbose) {
@@ -893,6 +950,9 @@ JKRSolidHeap* mDoExt_createSolidHeap(u32 i_size, JKRHeap* i_parent, u32 i_alignm
         }
         createdHeap = JKRCreateSolidHeap(i_size, i_parent, false);
     }
+#ifdef TARGET_PC
+    pc_crash_set_jmpbuf(prevBuf);
+#endif
 
     if (createdHeap != NULL) {
         JKRSetErrorFlag(createdHeap, true);
@@ -991,7 +1051,22 @@ u32 mDoExt_adjustSolidHeap(JKRSolidHeap* i_heap) {
     }
 
     u32 estimatedSize = i_heap->getHeapSize();
+#ifdef TARGET_PC
+    jmp_buf adjBuf;
+    jmp_buf* prevAdjBuf = pc_crash_get_jmpbuf();
+    pc_crash_set_jmpbuf(&adjBuf);
+    if (setjmp(adjBuf) != 0) {
+        pc_crash_set_jmpbuf(prevAdjBuf);
+        fprintf(stderr,
+                "[HEAP] adjustSolidHeap recovered from crash addr=%p heap=%p size=%u\n",
+                (void*)pc_crash_get_addr(), (void*)i_heap, estimatedSize);
+        return (estimatedSize >= 0x80) ? (estimatedSize - 0x80) : estimatedSize;
+    }
+#endif
     s32 result = i_heap->adjustSize();
+#ifdef TARGET_PC
+    pc_crash_set_jmpbuf(prevAdjBuf);
+#endif
     if (result < 0) {
         // "adjustSize failure %08x\n"
         OSReport_Error("adjustSize失敗 %08x\n", i_heap);
@@ -1366,7 +1441,24 @@ void mDoExt_McaMorf::calc() {
         return;
     }
 
-    u16 jntNo = getJoint()->getJntNo();
+    J3DJoint* joint = getJoint();
+    if (joint == NULL) {
+#ifdef TARGET_PC
+        static int s_null_jnt = 0;
+        if (s_null_jnt++ < 3) fprintf(stderr, "[McaMorf] calc: getJoint() returned NULL\n");
+#endif
+        return;
+    }
+    u16 jntNo = joint->getJntNo();
+#ifdef TARGET_PC
+    u16 maxJnts = mpModel->getModelData()->getJointNum();
+    if (jntNo >= maxJnts) {
+        static int s_oob_jnt = 0;
+        if (s_oob_jnt++ < 3)
+            fprintf(stderr, "[McaMorf] calc: jntNo=%d >= maxJnts=%d (bad byte-swap?)\n", jntNo, maxJnts);
+        return;
+    }
+#endif
     j3dSys.setCurrentMtxCalc(this);
 
     J3DTransformInfo sp48;
@@ -1619,6 +1711,17 @@ void mDoExt_McaMorfSO::calc() {
     if (mpModel != NULL) {
         u16 jnt_no = getJoint()->getJntNo();
         j3dSys.setCurrentMtxCalc(this);
+#ifdef TARGET_PC
+        static int s_mcamorfso_calc_log = 0;
+        bool doLog = s_mcamorfso_calc_log < 40;
+        if (doLog) {
+            fprintf(stderr,
+                    "[MCAMORF] calc: this=%p model=%p anm=%p bas=%p joint=%u curMorf=%.3f prevMorf=%.3f\n",
+                    (void*)this, (void*)mpModel, (void*)mpAnm, mpBas, jnt_no, mCurMorf, mPrevMorf);
+            fflush(stderr);
+            s_mcamorfso_calc_log++;
+        }
+#endif
 
         J3DTransformInfo trans;
         J3DTransformInfo* trans_p;
@@ -1637,6 +1740,9 @@ void mDoExt_McaMorfSO::calc() {
         }
 
         if (mpAnm == NULL) {
+#ifdef TARGET_PC
+            if (doLog) { fprintf(stderr, "[MCAMORF] calc: no animation, using joint transform\n"); fflush(stderr); }
+#endif
             *trans_p = mpModel->getModelData()->getJointNodePointer(jnt_no)->getTransformInfo();
 
             if (mpCallback1 != NULL) {
@@ -1647,7 +1753,29 @@ void mDoExt_McaMorfSO::calc() {
                            quat_p);
             J3DMtxCalcCalcTransformMaya::calcTransform(*trans_p);
         } else if (mCurMorf >= 1.0f || mpTransformInfo == NULL || mpQuat == NULL) {
+#ifdef TARGET_PC
+            if (doLog) {
+                fprintf(stderr,
+                        "[MCAMORF] calc: direct getTransform() kind=%d frameMax=%d jointCount=%u scale=%p rot=%p trans=%p",
+                        mpAnm->getKind(), mpAnm->getFrameMax(), mpAnm->field_0x1e,
+                        (void*)mpAnm->mScaleData, (void*)mpAnm->mRotData, (void*)mpAnm->mTransData);
+                if (mpAnm->getKind() == 8) {
+                    J3DAnmTransformKey* keyAnm = static_cast<J3DAnmTransformKey*>(mpAnm);
+                    fprintf(stderr, " decShift=%d table=%p", keyAnm->mDecShift, (void*)keyAnm->mAnmTable);
+                }
+                fprintf(stderr, "\n");
+                fflush(stderr);
+            }
+#endif
             getTransform(jnt_no, trans_p);
+#ifdef TARGET_PC
+            if (doLog) {
+                fprintf(stderr,
+                        "[MCAMORF] calc: getTransform ok trans=(%.2f, %.2f, %.2f)\n",
+                        trans_p->mTranslate.x, trans_p->mTranslate.y, trans_p->mTranslate.z);
+                fflush(stderr);
+            }
+#endif
 
             if (mpCallback1 != NULL) {
                 mpCallback1->execute(jnt_no, trans_p);
@@ -1655,6 +1783,9 @@ void mDoExt_McaMorfSO::calc() {
 
             JMAEulerToQuat(trans_p->mRotation.x, trans_p->mRotation.y, trans_p->mRotation.z,
                            quat_p);
+#ifdef TARGET_PC
+            if (doLog) { fprintf(stderr, "[MCAMORF] calc: calling Maya calcTransform\n"); fflush(stderr); }
+#endif
             J3DMtxCalcCalcTransformMaya::calcTransform(*trans_p);
         } else {
             f32 lerp_factor;
@@ -1666,7 +1797,18 @@ void mDoExt_McaMorfSO::calc() {
             f32 inv_lerp_factor = 1.0f - lerp_factor;
 
             J3DTransformInfo trans2;
+#ifdef TARGET_PC
+            if (doLog) { fprintf(stderr, "[MCAMORF] calc: lerp getTransform()\n"); fflush(stderr); }
+#endif
             getTransform(jnt_no, &trans2);
+#ifdef TARGET_PC
+            if (doLog) {
+                fprintf(stderr,
+                        "[MCAMORF] calc: lerp getTransform ok trans2=(%.2f, %.2f, %.2f)\n",
+                        trans2.mTranslate.x, trans2.mTranslate.y, trans2.mTranslate.z);
+                fflush(stderr);
+            }
+#endif
 
             if (mpCallback1 != NULL) {
                 mpCallback1->execute(jnt_no, &trans2);
