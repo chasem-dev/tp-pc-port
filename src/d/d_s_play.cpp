@@ -699,6 +699,13 @@ static u32 l_sceneChangeStartTick;
 #endif
 
 static int dScnPly_Execute(dScnPly_c* i_this) {
+#ifdef TARGET_PC
+    static int s_exec_log = 0;
+    volatile int exec_pos = 0;  /* track crash position */
+    if (s_exec_log < 3) {
+        fprintf(stderr, "[PLAY-EXEC] enter: this=%p\n", (void*)i_this);
+    }
+#endif
     #if DEBUG
     fapGm_HIO_c::startCpuTimer();
     #endif
@@ -732,10 +739,18 @@ static int dScnPly_Execute(dScnPly_c* i_this) {
     #endif
 
     BOOL comboTrig = FALSE;
+#ifdef TARGET_PC
+    exec_pos = 1;
+    if (s_exec_log < 3) fprintf(stderr, "[PLAY-EXEC] pos=1 offNoChangeRoom\n");
+#endif
 
     dStage_roomControl_c::offNoChangeRoom();
     dStage_roomControl_c::setRoomReadId(0xFF);
 
+#ifdef TARGET_PC
+    exec_pos = 2;
+    if (s_exec_log < 3) fprintf(stderr, "[PLAY-EXEC] pos=2 fopOvlpM_IsPeek\n");
+#endif
     if (!fopOvlpM_IsPeek()) {
         if (mDoAud_zelAudio_c::isBgmSet()) {
             mDoAud_sceneBgmStart();
@@ -748,6 +763,10 @@ static int dScnPly_Execute(dScnPly_c* i_this) {
         }
     }
 
+#ifdef TARGET_PC
+    exec_pos = 3;
+    if (s_exec_log < 3) fprintf(stderr, "[PLAY-EXEC] pos=3 dKy_itudemo_se\n");
+#endif
     dKy_itudemo_se();
 
     #if DEBUG
@@ -781,11 +800,19 @@ static int dScnPly_Execute(dScnPly_c* i_this) {
     }
     #endif
 
+#ifdef TARGET_PC
+    exec_pos = 10;
+    if (s_exec_log < 3) fprintf(stderr, "[PLAY-EXEC] pos=10 isPauseFlag\n");
+#endif
     if (!dComIfGp_isPauseFlag()) {
         #if DEBUG
         dJprev_c::get()->update();
         #endif
 
+#ifdef TARGET_PC
+        exec_pos = 11;
+        if (s_exec_log < 3) fprintf(stderr, "[PLAY-EXEC] pos=11 dDemo_c::update\n");
+#endif
         dDemo_c::update();
 
         #if DEBUG
@@ -796,9 +823,25 @@ static int dScnPly_Execute(dScnPly_c* i_this) {
         dBgp_c::executeShare();
         #endif
 
+#ifdef TARGET_PC
+        exec_pos = 12;
+        if (s_exec_log < 3) fprintf(stderr, "[PLAY-EXEC] pos=12 Event::Step\n");
+#endif
         dComIfGp_getEvent()->Step();
+#ifdef TARGET_PC
+        exec_pos = 121;
+        if (s_exec_log < 3) fprintf(stderr, "[PLAY-EXEC] pos=121 Attention::Run (ptr=%p)\n", (void*)dComIfGp_getAttention());
+#endif
         dComIfGp_getAttention()->Run();
     }
+
+#ifdef TARGET_PC
+    exec_pos = 13;
+    if (s_exec_log < 3) {
+        fprintf(stderr, "[PLAY-EXEC] pos=13 complete\n");
+        s_exec_log++;
+    }
+#endif
 
     #if DEBUG
     fapGm_HIO_c::printCpuTimer("");
