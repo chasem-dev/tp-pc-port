@@ -347,21 +347,12 @@ void mDoExt_modelUpdateDL(J3DModel* i_model) {
 
     J3DModelData* model_data = i_model->getModelData();
 #ifdef TARGET_PC
-    /* PC path: use locked shared-DL entry when available.
-     * This avoids unstable material-diff execution on partially reconstructed
-     * TEV state and keeps draw-time material loads on prebuilt DLs. */
-    if (model_data->getMaterialNodePointer(0)->getSharedDisplayListObj() != NULL &&
-        model_data->isLocked() == FALSE)
-    {
-        i_model->lock();
-        i_model->calc();
-        i_model->entry();
-    } else {
-        i_model->unlock();
-        i_model->update();
-        i_model->lock();
-    }
-
+    /* PC path: always use UNLOCKED mode so that J3DMatPacket::draw()
+     * calls GXLoadTexObj directly. Locked mode uses material display lists
+     * with BP texture commands that reference TMEM addresses (invalid on PC). */
+    i_model->unlock();
+    i_model->calc();
+    i_model->entry();
     i_model->viewCalc();
     return;
 #endif

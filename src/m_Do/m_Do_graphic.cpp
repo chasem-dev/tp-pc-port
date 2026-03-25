@@ -1733,7 +1733,7 @@ int mDoGph_Painter() {
             }
         }
         /* If no camera actor exists, create a default view so 3D models can render.
-         * This happens during the opening scene when the camera actor fails to create. */
+         * Update the camera each frame — use the player position when available. */
         static u8 s_defaultCameraStorage[sizeof(camera_process_class)] __attribute__((aligned(16)));
         camera_process_class* s_defaultCameraPtr = (camera_process_class*)s_defaultCameraStorage;
         if (camera_p == NULL) {
@@ -1741,30 +1741,34 @@ int mDoGph_Painter() {
             if (!s_init) {
                 s_init = true;
                 memset(s_defaultCameraStorage, 0, sizeof(s_defaultCameraStorage));
-                /* Set up a basic perspective view looking at the bridge scene */
-                Vec eye = {34941.0f, 300.0f, -15854.0f};
-                Vec center = {34941.0f, 0.0f, -15554.0f};
-                Vec up = {0.0f, 1.0f, 0.0f};
-                C_MTXLookAt(s_defaultCameraPtr->view.viewMtx, &eye, &up, &center);
-                s_defaultCameraPtr->view.fovy = 60.0f;
+                s_defaultCameraPtr->view.fovy = 90.0f;
                 s_defaultCameraPtr->view.aspect = (f32)FB_WIDTH / (f32)FB_HEIGHT;
                 s_defaultCameraPtr->view.near = 1.0f;
                 s_defaultCameraPtr->view.far = 128000.0f;
-                /* Compute projection matrix from perspective params */
-                C_MTXPerspective(s_defaultCameraPtr->view.projMtx,
-                                 s_defaultCameraPtr->view.fovy,
-                                 s_defaultCameraPtr->view.aspect,
-                                 s_defaultCameraPtr->view.near,
-                                 s_defaultCameraPtr->view.far);
-                fprintf(stderr, "[PC] Using default camera (fovy=%.1f aspect=%.2f near=%.1f far=%.1f)\n",
-                        s_defaultCameraPtr->view.fovy, s_defaultCameraPtr->view.aspect,
-                        s_defaultCameraPtr->view.near, s_defaultCameraPtr->view.far);
-                fprintf(stderr, "[PC]   projMtx[0] = (%.6f, %.6f, %.6f, %.6f)\n",
-                        s_defaultCameraPtr->view.projMtx[0][0],
-                        s_defaultCameraPtr->view.projMtx[0][1],
-                        s_defaultCameraPtr->view.projMtx[0][2],
-                        s_defaultCameraPtr->view.projMtx[0][3]);
+                fprintf(stderr, "[PC] Using default camera\n");
             }
+            /* Update view matrix each frame based on player position */
+            fopAc_ac_c* player = dComIfGp_getPlayer(0);
+            Vec eye, center, up = {0.0f, 1.0f, 0.0f};
+            if (player != NULL) {
+                /* Use player position with wide FOV to see the scene */
+                eye.x = player->current.pos.x;
+                eye.y = player->current.pos.y + 300.0f;
+                eye.z = player->current.pos.z;
+                center.x = player->current.pos.x;
+                center.y = player->current.pos.y;
+                center.z = player->current.pos.z + 300.0f;
+            } else {
+                /* Fallback before player spawns */
+                eye.x = 34941.0f; eye.y = 300.0f; eye.z = -15854.0f;
+                center.x = 34941.0f; center.y = 0.0f; center.z = -15554.0f;
+            }
+            C_MTXLookAt(s_defaultCameraPtr->view.viewMtx, &eye, &up, &center);
+            C_MTXPerspective(s_defaultCameraPtr->view.projMtx,
+                             s_defaultCameraPtr->view.fovy,
+                             s_defaultCameraPtr->view.aspect,
+                             s_defaultCameraPtr->view.near,
+                             s_defaultCameraPtr->view.far);
             camera_p = s_defaultCameraPtr;
         }
 #endif
