@@ -66,8 +66,20 @@ struct J3DShapeFactory {
     /* 0x18 */ J3DShapeDrawInitData* mDrawInitData;
     /* 0x1C */ u8* mVcdVatCmdBuffer;
 
-    u16 getMtxGroupNum(int no) const { return mShapeInitData[mIndexTable[no]].mMtxGroupNum; }
-    GXVtxDescList* getVtxDescList(int no) const { return (GXVtxDescList*)((u8*)mVtxDescList + mShapeInitData[mIndexTable[no]].mVtxDescListIndex); }
+    u16 getMtxGroupNum(int no) const {
+#ifdef TARGET_PC
+        const J3DShapeInitData& init = mShapeInitData[mIndexTable[no]];
+        u16 raw = init.mMtxGroupNum;
+        if ((raw & 0x00FF) == 0x00FF && (raw >> 8) < 0x40) {
+            u16 count = raw >> 8;
+            return count == 0 ? 1 : count;
+        }
+        return raw;
+#else
+        return mShapeInitData[mIndexTable[no]].mMtxGroupNum;
+#endif
+    }
+    GXVtxDescList* getVtxDescList(int no) const;
     f32 getRadius(int no) const { return mShapeInitData[mIndexTable[no]].mRadius; }
     Vec& getMin(int no) const { return mShapeInitData[mIndexTable[no]].mMin; }
     Vec& getMax(int no) const { return mShapeInitData[mIndexTable[no]].mMax; }

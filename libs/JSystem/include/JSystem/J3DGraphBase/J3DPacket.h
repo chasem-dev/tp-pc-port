@@ -311,7 +311,11 @@ public:
     void setInitShapePacket(J3DShapePacket* packet) { mpInitShapePacket = packet; }
     void setMaterialID(u32 id) { mDiffFlag = id; }
     void setMaterialAnmID(J3DMaterialAnm* materialAnm) { mpMaterialAnm = materialAnm; }
+#ifdef TARGET_PC
+    BOOL isChanged() { return TRUE; }
+#else
     BOOL isChanged() { return mDiffFlag & J3DDiffFlag_Changed; }
+#endif
     bool isEnabled_Diff() { return mpInitShapePacket->getDisplayListObj() != NULL; }
 
     virtual ~J3DMatPacket();

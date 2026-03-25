@@ -14,8 +14,10 @@ class JUTNameTab;
  * 
  */
 struct J3DModelHierarchy {
-    /* 0x0 */ u16 mType;
-    /* 0x2 */ u16 mValue;
+    /* On disk this pair is stored as value first, then type. The loader and
+     * hierarchy walker read the fields directly from the J3D binary buffer. */
+    /* 0x0 */ u16 mValue;
+    /* 0x2 */ u16 mType;
 };
 
 class J3DMaterialTable;
@@ -69,6 +71,9 @@ public:
     J3DJoint* getRootNode() { return mRootNode; }
     J3DJoint* getJointNodePointer(u16 idx) const {
         J3D_ASSERT_RANGE(139, idx < mJointNum);
+#ifdef TARGET_PC
+        if (mJointNodePointer == NULL || idx >= mJointNum) return NULL;
+#endif
         return mJointNodePointer[idx];
     }
     J3DMtxCalc* getBasicMtxCalc() { return mBasicMtxCalc; }

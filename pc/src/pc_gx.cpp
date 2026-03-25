@@ -1491,7 +1491,7 @@ void pc_gx_flush_vertices(void) {
         u32 r = VIGetRetraceCount();
         if (r != s_last_frame_retrace) {
             static int s_stat_log = 0;
-            if (s_stat_log < 10 && s_frame_draws_total > 2) {
+            if (s_stat_log < 10 && r > 700) {
                 fprintf(stderr, "[DRAW-STATS] frame %u: %d ok, %d crashed, %d total (pretrans=%d)\n",
                         s_last_frame_retrace, s_frame_draws_ok, s_frame_draws_crash, s_frame_draws_total,
                         g_gx.batch_pretransformed);

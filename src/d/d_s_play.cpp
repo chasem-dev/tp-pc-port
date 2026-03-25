@@ -718,6 +718,16 @@ static int dScnPly_Execute(dScnPly_c* i_this) {
         fprintf(stderr, "[PLAY] forcing OPENING_SCENE unpause (pause_flag=%d)\n", base->pause_flag);
         fopScnPause_Disable(i_this);
     }
+    /* On PC, actors load asynchronously. Many actors dereference the player
+     * pointer during Execute without NULL checks. Wait until the player actor
+     * is fully created before allowing scene execution to proceed. */
+    if (dComIfGp_getPlayer(0) == NULL) {
+        static int s_wait_player = 0;
+        if (s_wait_player++ % 60 == 0) {
+            fprintf(stderr, "[PLAY-EXEC] waiting for player actor to create...\n");
+        }
+        return 1;
+    }
 #endif
 
     #if DEBUG

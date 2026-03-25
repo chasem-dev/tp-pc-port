@@ -25,6 +25,10 @@ public:
     u32 read32b() {
         u32 val;
         this->read(&val, sizeof(val));
+#ifdef TARGET_PC
+        /* read32b = "read big-endian 32-bit". On little-endian PC, byte-swap. */
+        val = __builtin_bswap32(val);
+#endif
         return val;
     }
 

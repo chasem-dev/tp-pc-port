@@ -177,6 +177,12 @@ public:
     /* 0x7C */ J3DPatchingInfo* mpPatchingInfo;
     /* 0x80 */ J3DCurrentMtxInfo* mpCurrentMtxInfo;
     /* 0x84 */ u8* mpMaterialMode;
+#ifdef TARGET_PC
+    /* PC: source MAT3 block bounds for safe table dereferences */
+    const u8* mPcBlockBase;
+    const u8* mPcBlockEnd;
+    bool mPcForceSafeMaterial;
+#endif
 };
 
 #endif /* J3DMATERIALFACTORY_H */

@@ -8,7 +8,7 @@
  * 
  */
 struct J3DClusterLoaderDataBase {
-    static void* load(void const*);
+    static void* load(void const*, u32 i_dataSizeLimit = 0);
 };
 
 /**

@@ -30,6 +30,9 @@ public:
     u16 getShapeNum() const { return mShapeNum; }
     J3DShape* getShapeNodePointer(u16 idx) const {
         J3D_ASSERT_RANGE(85, idx < mShapeNum);
+#ifdef TARGET_PC
+        if (mShapeNodePointer == NULL || idx >= mShapeNum) return NULL;
+#endif
         return mShapeNodePointer[idx];
     }
 

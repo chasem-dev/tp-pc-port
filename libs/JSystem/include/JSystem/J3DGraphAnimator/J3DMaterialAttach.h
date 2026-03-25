@@ -33,6 +33,9 @@ public:
 
     J3DMaterial* getMaterialNodePointer(u16 idx) const {
         J3D_ASSERT_RANGE(92, idx < mMaterialNum);
+#ifdef TARGET_PC
+        if (mMaterialNodePointer == NULL || idx >= mMaterialNum) return NULL;
+#endif
         return mMaterialNodePointer[idx];
     }
 

@@ -63,6 +63,7 @@ public:
     void* getVtxNrmArray() const { return mVertexData.getVtxNrmArray(); }
     GXColor* getVtxColorArray(u8 idx) const { return mVertexData.getVtxColorArray(idx); }
     bool checkFlag(u32 flag) const { return (mFlags & flag) ? true : false; }
+    void setFlag(u32 flag) { mFlags |= flag; }
     u32 getFlag() const { return mFlags; }
     void const* getRawData() const { return mpRawData; }
     bool checkBumpFlag() const { return mbHasBumpArray == 1; }

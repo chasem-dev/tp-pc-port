@@ -261,7 +261,7 @@ namespace JMathInlineVEC {
         __REGISTER f32 x_y;
         __REGISTER f32 z;
         __REGISTER f32 res;
-    
+
         asm {
             psq_l   x_y, 0(v), 0, 0
             ps_mul  x_y, x_y, x_y
@@ -270,6 +270,8 @@ namespace JMathInlineVEC {
             ps_sum0 res, res, x_y, x_y
         }
         return res;
+    #else
+        return v->x * v->x + v->y * v->y + v->z * v->z;
     #endif
     }
 
@@ -290,6 +292,8 @@ namespace JMathInlineVEC {
             ps_sum0 res, otheryz, thisyz, thisyz
         };
         return res;
+    #else
+        return a->x * b->x + a->y * b->y + a->z * b->z;
     #endif
     }
 };

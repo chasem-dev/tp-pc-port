@@ -16,16 +16,30 @@ private:
     /* 0x0 */ u16 mNum;
     /* 0x2 */ u16 unk_0x2;
     /* 0x4 */ ResTIMG* mpRes;
+#ifdef TARGET_PC
+    /* On 64-bit, imageOffset (u32) can't hold the address difference between
+     * the copied ResTIMG and the original data in the archive buffer.
+     * Store the original ResTIMG pointers for direct image data access. */
+    const ResTIMG** mpOrigRes;
+#endif
 
 public:
-    J3DTexture(u16 num, ResTIMG* res) : mNum(num), unk_0x2(0), mpRes(res) {
+    J3DTexture(u16 num, ResTIMG* res) : mNum(num), unk_0x2(0), mpRes(res)
+#ifdef TARGET_PC
+        , mpOrigRes(NULL)
+#endif
+    {
         J3D_ASSERT_NULLPTR(52, res != NULL || num == 0);
     }
 
     void loadGX(u16, GXTexMapID) const;
     void entryNum(u16);
     void addResTIMG(u16, ResTIMG const*);
-    virtual ~J3DTexture() {}
+    virtual ~J3DTexture() {
+#ifdef TARGET_PC
+        delete[] mpOrigRes;
+#endif
+    }
 
     u16 getNum() const { return mNum; }
 
@@ -34,9 +48,25 @@ public:
         return &mpRes[index];
     }
 
+#ifdef TARGET_PC
+    const ResTIMG* getOrigResTIMG(u16 index) const {
+        if (mpOrigRes && index < mNum) return mpOrigRes[index];
+        return &mpRes[index];
+    }
+#endif
+
     void setResTIMG(u16 index, const ResTIMG& timg) {
         J3D_ASSERT_RANGE(81, index < mNum);
         mpRes[index] = timg;
+#ifdef TARGET_PC
+        /* Store pointer to original ResTIMG (in the archive buffer) for
+         * 64-bit safe image data access. */
+        if (!mpOrigRes) {
+            mpOrigRes = new const ResTIMG*[mNum];
+            for (int i = 0; i < mNum; i++) mpOrigRes[i] = NULL;
+        }
+        mpOrigRes[index] = &timg;
+#endif
         mpRes[index].imageOffset = ((mpRes[index].imageOffset + (uintptr_t)&timg - (uintptr_t)(mpRes + index)));
         mpRes[index].paletteOffset = ((mpRes[index].paletteOffset + (uintptr_t)&timg - (uintptr_t)(mpRes + index)));
     }
