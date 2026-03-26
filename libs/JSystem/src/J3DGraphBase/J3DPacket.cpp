@@ -309,36 +309,42 @@ void J3DMatPacket::draw() {
                 for (int i = 0; i < numStages; i++) {
                     u16 texNoRaw = tevBlock->getTexNo(i);
                     u16 texNo = texNoRaw;
-                    {
-                        static int s_tl2 = 0;
-                        if (s_tl2 < 60 && tex->getNum() > 10) {
-                            fprintf(stderr, "[TEX-LOAD] mat=%d stage=%d texNoRaw=%u numTex=%d\n",
-                                    mpMaterial->getIndex(), i, (unsigned)texNoRaw, tex->getNum());
-                            s_tl2++;
-                        }
-                    }
-                    if (texNo == 0xFFFF && tex->getNum() > 0) {
-                        texNo = (i < (int)tex->getNum()) ? (u16)i : 0;
-                        if (g_pc_verbose) {
-                            static int s_texno_missing_log = 0;
-                            if (s_texno_missing_log++ < 40) {
-                                fprintf(stderr,
-                                        "[J3D-TEX] substitute missing texNo stage=%d -> %u numTex=%u\n",
-                                        i, texNo, tex->getNum());
-                            }
-                        }
-                    }
+
+                    /* Fix byte-swapped texNo: if the raw value looks like a
+                     * BE u16 read on LE, try swapping. Common pattern: 0x0600
+                     * is really 0x0006. */
                     if (texNo != 0xFFFF && texNo >= tex->getNum()) {
                         u16 swapped = (u16)((texNoRaw >> 8) | (texNoRaw << 8));
                         if (swapped < tex->getNum()) {
                             texNo = swapped;
-                            if (g_pc_verbose) {
-                                static int s_texno_fix_log = 0;
-                                if (s_texno_fix_log++ < 40) {
-                                    fprintf(stderr,
-                                            "[J3D-TEX] fix texNo stage=%d raw=%u swapped=%u numTex=%u\n",
-                                            i, texNoRaw, texNo, tex->getNum());
-                                }
+                        }
+                    }
+                    /* If texNo is still invalid but the model HAS textures,
+                     * use the TEV ORDER's texture map index as a hint, or
+                     * fall back to stage index. */
+                    if (texNo == 0xFFFF || texNo >= tex->getNum()) {
+                        J3DTevOrder* order = tevBlock->getTevOrder(i);
+                        u8 mapId = 0xFF;
+                        if (order != NULL) {
+                            mapId = order->getTexMap();
+                            if (mapId != 0xFF && mapId < tex->getNum()) {
+                                texNo = mapId;
+                            }
+                        }
+                        if (texNo == 0xFFFF || texNo >= tex->getNum()) {
+                            if (tex->getNum() > 0) {
+                                texNo = (i < (int)tex->getNum()) ? (u16)i : 0;
+                            }
+                        }
+                        static int s_fallback_log = 0;
+                        if (s_fallback_log < 30 || tex->getNum() > 20) {
+                            static int s_fb_room = 0;
+                            if (tex->getNum() > 20 && s_fb_room++ < 20) {
+                                fprintf(stderr, "[TEX-FALLBACK-ROOM] mat=%d stage=%d raw=%u mapId=%u final=%u numTex=%u\n",
+                                        mpMaterial->getIndex(), i, (unsigned)texNoRaw, (unsigned)mapId,
+                                        (unsigned)texNo, tex->getNum());
+                            } else if (s_fallback_log < 30) {
+                                s_fallback_log++;
                             }
                         }
                     }

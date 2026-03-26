@@ -787,7 +787,7 @@ u16 J3DMaterialFactory::newTexNo(int i_idx, int i_no) const {
 #ifdef TARGET_PC
     {
         static int s_texno_log = 0;
-        if (s_texno_log < 30) {
+        if (s_texno_log < 80) {
             u16 rawIdx = mtl_init_data->mTexNoIdx[i_no];
             u16 result = 0xffff;
             if (rawIdx != 0xffff && pc_mat_table_readable(this, mpTexNo, rawIdx)) {
