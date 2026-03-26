@@ -19946,7 +19946,31 @@ int daAlink_c::draw() {
 }
 
 static int daAlink_Draw(daAlink_c* i_this) {
+#ifdef TARGET_PC
+    /* Link's draw() crashes at subsystem calls (CrrPos, env lighting, etc.)
+     * that weren't fully initialized. Try full draw first, fallback to
+     * just rendering the model if it fails. */
+    jmp_buf alinkDrawBuf;
+    jmp_buf* prevBuf = pc_crash_get_jmpbuf();
+    pc_crash_set_jmpbuf(&alinkDrawBuf);
+    if (setjmp(alinkDrawBuf) == 0) {
+        int ret = i_this->draw();
+        pc_crash_set_jmpbuf(prevBuf);
+        return ret;
+    }
+    pc_crash_set_jmpbuf(prevBuf);
+    /* Full draw crashed — try minimal model render */
+    static int s_alink_draw_fallback = 0;
+    if (s_alink_draw_fallback++ < 3) {
+        fprintf(stderr, "[ALINK] draw() crashed, attempting minimal model render\n");
+    }
+    if (i_this->mpLinkModel != NULL) {
+        mDoExt_modelEntryDL(i_this->mpLinkModel);
+    }
+    return 1;
+#else
     return i_this->draw();
+#endif
 }
 
 daAlink_c::~daAlink_c() {
