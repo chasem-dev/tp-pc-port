@@ -2062,17 +2062,6 @@ void GXMatrixIndex1u8(const u8 x) { pc_gx_set_active_matrix_attr(GX_VA_PNMTXIDX,
 void GXInit(void* base, u32 size) { (void)base; (void)size; }
 void GXAbortFrame(void) {}
 
-extern "C" void pc_gx_abort_draw(void) {
-    /* Force-end any in-progress primitive batch without flushing to GL.
-     * Called when an actor's draw function crashes to prevent partial
-     * geometry (like giant white triangles) from being rendered. */
-    if (g_gx.in_begin) {
-        g_gx.in_begin = 0;
-        g_gx.vertex_count = 0;
-        g_gx.current_vertex_idx = 0;
-    }
-}
-
 void GXBegin(u32 primitive, u32 vtxfmt, u16 nVerts) {
     /* Auto-flush previous batch if still in_begin (omitted GXEnd) */
     if (g_gx.in_begin && g_gx.current_vertex_idx > 0) {

@@ -19600,34 +19600,6 @@ void daAlink_c::initTevCustomColor() {
 }
 
 int daAlink_c::draw() {
-#ifdef TARGET_PC
-    /* On PC, Link's draw() has multiple crash points in subsystem calls
-     * (env lighting, collision, particles, TEV color) that aren't fully
-     * initialized. Skip the complex preamble and render the model directly.
-     * This gives us Link's geometry without the environmental effects.
-     *
-     * The model may be partially initialized (model init crashed during
-     * create), so guard the entry with crash protection. */
-    {
-        jmp_buf linkDrawBuf;
-        jmp_buf* prevBuf = pc_crash_get_jmpbuf();
-        pc_crash_set_jmpbuf(&linkDrawBuf);
-        if (setjmp(linkDrawBuf) == 0) {
-            if (mpLinkModel != NULL && mpLinkModel->getModelData() != NULL) {
-                mDoExt_modelEntryDL(mpLinkModel);
-            }
-        } else {
-            static bool s_warned = false;
-            if (!s_warned) {
-                s_warned = true;
-                fprintf(stderr, "[ALINK] model entry crashed at %p — Link model not ready\n",
-                        (void*)pc_crash_get_addr());
-            }
-        }
-        pc_crash_set_jmpbuf(prevBuf);
-    }
-    return 1;
-#else
     if (checkWolf()) {
         g_env_light.settingTevStruct(9, &current.pos, &tevStr);
     } else {
@@ -19635,7 +19607,6 @@ int daAlink_c::draw() {
     }
 
     initTevCustomColor();
-#endif
 
     if (mSight.getDrawFlg() && !checkEventRun()) {
         #if PLATFORM_GCN

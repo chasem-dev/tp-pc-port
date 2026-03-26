@@ -4,12 +4,6 @@
  */
 
 #include "d/dolzel.h" // IWYU pragma: keep
-#ifdef TARGET_PC
-#include <setjmp.h>
-extern "C" void pc_crash_set_jmpbuf(jmp_buf* buf);
-extern "C" jmp_buf* pc_crash_get_jmpbuf(void);
-extern "C" uintptr_t pc_crash_get_addr(void);
-#endif
 
 #include "d/d_s_play.h"
 #include "JSystem/JUtility/JUTConsole.h"
@@ -554,29 +548,8 @@ static int dScnPly_Draw(dScnPly_c* i_this) {
     dStage_DebugDisp();
     #endif
 
-#ifdef TARGET_PC
-    {
-        jmp_buf scnDrawBuf;
-        jmp_buf* prevBuf = pc_crash_get_jmpbuf();
-        pc_crash_set_jmpbuf(&scnDrawBuf);
-        if (setjmp(scnDrawBuf) != 0) {
-            pc_crash_set_jmpbuf(prevBuf);
-            static bool s_warned = false;
-            if (!s_warned) {
-                s_warned = true;
-                fprintf(stderr, "[SCENE] Ccsp/Bgsp crashed at %p — skipping collision update\n",
-                        (void*)pc_crash_get_addr());
-            }
-        } else {
-            dComIfG_Ccsp()->Move();
-            dComIfG_Bgsp().ClrMoveFlag();
-            pc_crash_set_jmpbuf(prevBuf);
-        }
-    }
-#else
     dComIfG_Ccsp()->Move();
     dComIfG_Bgsp().ClrMoveFlag();
-#endif
 
     if (!fopOvlpM_IsPeek() && !dComIfG_resetToOpening(i_this)) {
         if (dComIfGp_isEnableNextStage()
@@ -742,10 +715,8 @@ static int dScnPly_Execute(dScnPly_c* i_this) {
 #ifdef TARGET_PC
     base_process_class* base = (base_process_class*)i_this;
     if (fpcM_GetName(i_this) == fpcNm_OPENING_SCENE_e && base->pause_flag != 0) {
-        /* Only unpause if NOT disabled by draw crash handler (bit 1) */
-        if (!(base->pause_flag & 2)) {
-            fopScnPause_Disable(i_this);
-        }
+        fprintf(stderr, "[PLAY] forcing OPENING_SCENE unpause (pause_flag=%d)\n", base->pause_flag);
+        fopScnPause_Disable(i_this);
     }
     /* On PC, actors load asynchronously. Many actors dereference the player
      * pointer during Execute without NULL checks. Wait until the player actor
