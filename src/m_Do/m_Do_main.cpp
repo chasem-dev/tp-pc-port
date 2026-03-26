@@ -875,7 +875,29 @@ void main01(void) {
                     frame, elapsed_ms, frame * 1000.0f / (elapsed_ms ? elapsed_ms : 1));
         }
 
-        /* No frame pacing — check window title for real FPS */
+        /* Frame pacing: ensure ~60fps by sleeping if the frame completed
+         * too fast. VIWaitForRetrace should handle this, but on some
+         * platforms the swap interval and busy-wait don't block properly. */
+        {
+            extern int g_pc_no_framelimit;
+            static u64 s_frame_start = 0;
+            u64 freq = SDL_GetPerformanceFrequency();
+            u64 now = SDL_GetPerformanceCounter();
+            if (s_frame_start != 0 && !g_pc_no_framelimit) {
+                u64 elapsed_us = (now - s_frame_start) * 1000000 / freq;
+                const u64 target_us = 16667; /* 60fps */
+                while (elapsed_us < target_us) {
+                    u64 remain = target_us - elapsed_us;
+                    if (remain > 2000) {
+                        struct timespec ts = {0, 1000000}; /* 1ms */
+                        nanosleep(&ts, NULL);
+                    }
+                    now = SDL_GetPerformanceCounter();
+                    elapsed_us = (now - s_frame_start) * 1000000 / freq;
+                }
+            }
+            s_frame_start = SDL_GetPerformanceCounter();
+        }
 #endif
     } while (true);
 }

@@ -9,6 +9,7 @@
 #ifdef TARGET_PC
 extern "C" void pc_platform_poll_events_only(void);
 extern "C" void pc_platform_swap_buffers(void);
+extern "C" void pc_platform_clear_and_swap(void);
 extern "C" u64 SDL_GetPerformanceCounter(void);
 extern "C" u64 SDL_GetPerformanceFrequency(void);
 #endif
@@ -1280,7 +1281,7 @@ int dScnLogo_c::create() {
             if (mpMain2DCommand && !mpMain2DCommand->sync()) all_cmds_done = false;
             if (all_cmds_done) break;
             pc_platform_poll_events_only();
-            pc_platform_swap_buffers();
+            pc_platform_clear_and_swap();
             wait_frames++;
             if (wait_frames > 300) { /* 5s timeout */
                 fprintf(stderr, "[PC] logo create: load timeout after %d frames\n", wait_frames);
@@ -1331,7 +1332,7 @@ int dScnLogo_c::create() {
             fprintf(stderr, "[PC] TP_SKIP_LOGO=%d: skipping to DVD_WAIT\n", skip_level);
         } else if (skip_level >= 2) {
             mExecCommand = EXEC_DOLBY_IN;
-            mTimer = 30;
+            mTimer = 90;
             mDoGph_gInf_c::startFadeIn(30);
             mDoRst::setWarningDispFlag(1);
             mDoRst::setProgSeqFlag(1);

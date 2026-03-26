@@ -275,12 +275,9 @@ extern "C" void pc_gx_load_tex_obj_nf(void* obj, u32 mapID);
 
 void J3DSys::reinitTexture() {
 #ifdef TARGET_PC
-    /* On PC, GXLoadTexObj triggers a vertex flush which can crash the Metal
-     * shader compiler if the GX state is in an invalid configuration.
-     * Clear texture state directly instead. */
-    for (int i = 0; i < 8; i++) {
-        pc_gx_load_tex_obj_nf(NULL, i);
-    }
+    /* On PC, do NOT clear gl_textures — doing so races with 2D draw code
+     * that loads textures before GXBegin/GXEnd. Each draw's GXLoadTexObj
+     * sets the texture it needs; clearing here would wipe those bindings. */
     return;
 #endif
     GXTexObj texObj;

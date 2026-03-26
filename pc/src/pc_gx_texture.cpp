@@ -278,7 +278,7 @@ static void decode_I8(const u8* src, u8* dst, int w, int h) {
     }
 }
 
-/* IA4: 8x4 blocks, 8bpp (4-bit alpha + 4-bit intensity) */
+/* IA4: 8x4 blocks, 8bpp. High nibble = alpha, low nibble = intensity. */
 static void decode_IA4(const u8* src, u8* dst, int w, int h) {
     int bw = (w + 7) / 8, bh = (h + 3) / 4;
     for (int by = 0; by < bh; by++) {
@@ -290,8 +290,11 @@ static void decode_IA4(const u8* src, u8* dst, int w, int h) {
                     if (px < w && py < h) {
                         u8 alpha = (byte & 0xF0) | (byte >> 4);
                         u8 intensity = (byte << 4) | (byte & 0x0F);
+                        /* Premultiply: scale RGB by alpha to prevent white
+                         * halo from semi-transparent edge pixels bleeding. */
+                        u8 rgb = (u8)((intensity * alpha + 127) / 255);
                         int idx = (py * w + px) * 4;
-                        dst[idx] = dst[idx+1] = dst[idx+2] = intensity; dst[idx+3] = alpha;
+                        dst[idx] = dst[idx+1] = dst[idx+2] = rgb; dst[idx+3] = alpha;
                     }
                 }
             }
@@ -311,8 +314,9 @@ static void decode_IA8(const u8* src, u8* dst, int w, int h) {
                     u8 intensity = *src++;
                     int px = bx * 4 + x, py = by * 4 + y;
                     if (px < w && py < h) {
+                        u8 rgb = (u8)((intensity * alpha + 127) / 255);
                         int idx = (py * w + px) * 4;
-                        dst[idx] = dst[idx+1] = dst[idx+2] = intensity; dst[idx+3] = alpha;
+                        dst[idx] = dst[idx+1] = dst[idx+2] = rgb; dst[idx+3] = alpha;
                     }
                 }
             }

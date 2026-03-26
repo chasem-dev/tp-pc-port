@@ -5,6 +5,15 @@
 
 void J3DTexture::loadGX(u16 idx, GXTexMapID texMapID) const {
     J3D_ASSERT_RANGE(29, idx < mNum);
+    {
+        static int s_entry = 0;
+        if (s_entry < 20 && mNum > 10) {
+            fprintf(stderr, "[loadGX-MODEL] idx=%d map=%d num=%d this=%p fmt=%d %dx%d\n",
+                    idx, texMapID, mNum, (void*)this,
+                    getResTIMG(idx)->format, getResTIMG(idx)->width, getResTIMG(idx)->height);
+            s_entry++;
+        }
+    }
 
     ResTIMG* timg = getResTIMG(idx);
 #ifdef TARGET_PC
@@ -14,7 +23,7 @@ void J3DTexture::loadGX(u16 idx, GXTexMapID texMapID) const {
     u8* imgData = ((u8*)srcTimg) + srcTimg->imageOffset;
     u8* palData = ((u8*)srcTimg) + srcTimg->paletteOffset;
     static int s_tl = 0;
-    if (s_tl++ < 5) {
+    if (s_tl++ < 50 && timg->format != 14 && timg->format != 6) { /* skip framebuffer textures */
         /* Scan from image data start to find non-zero pixels */
         int firstNZ = -1;
         u32 imgOff = srcTimg->imageOffset;

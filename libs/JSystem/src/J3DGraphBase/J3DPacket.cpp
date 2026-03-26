@@ -215,6 +215,11 @@ bool J3DMatPacket::isSame(J3DMatPacket* pOther) const {
 
 void J3DMatPacket::draw() {
 #ifdef TARGET_PC
+    {
+        static int s_drawentry = 0;
+        if (s_drawentry++ < 5)
+            fprintf(stderr, "[MATPKT-DRAW] ENTRY this=%p mat=%p\n", (void*)this, (void*)mpMaterial);
+    }
     static int s_matpkt_draw_log = 0;
     static int s_matpkt_late_log = 0;
     u32 frame = VIGetRetraceCount();
@@ -262,6 +267,16 @@ void J3DMatPacket::draw() {
                 j3dSys.setTexture(tex);
             }
             J3DTevBlock* tevBlock = mpMaterial->getTevBlock();
+            static int s_texsrc_log = 0;
+            u32 r = VIGetRetraceCount();
+            if (r > 600 && s_texsrc_log < 20) {
+                fprintf(stderr, "[TEX-SRC] mpTex=%p sysTex=%p usedTex=%p numTex=%d matIdx=%d stages=%d\n",
+                        (void*)mpTexture, (void*)j3dSys.getTexture(), (void*)tex,
+                        tex ? tex->getNum() : -1,
+                        mpMaterial ? mpMaterial->getIndex() : -1,
+                        tevBlock ? tevBlock->getTevStageNum() : -1);
+                s_texsrc_log++;
+            }
             static int s_texload_log = 0;
             if (g_pc_verbose && s_texload_log < 10) {
                 fprintf(stderr, "[J3D-TEX] mat=%p tex=%p tevBlock=%p\n",
@@ -278,6 +293,12 @@ void J3DMatPacket::draw() {
                 s_texload_log++;
                 fflush(stderr);
             }
+            {
+                static int s_enter = 0;
+                if (s_enter++ < 10) {
+                    fprintf(stderr, "[TEX-ENTER] tex=%p tevBlock=%p\n", (void*)tex, (void*)tevBlock);
+                }
+            }
             if (tex != NULL && tevBlock != NULL) {
                 int numStages = tevBlock->getTevStageNum();
                 if (numStages > 8) numStages = 8;
@@ -288,6 +309,14 @@ void J3DMatPacket::draw() {
                 for (int i = 0; i < numStages; i++) {
                     u16 texNoRaw = tevBlock->getTexNo(i);
                     u16 texNo = texNoRaw;
+                    {
+                        static int s_tl2 = 0;
+                        if (s_tl2 < 60 && tex->getNum() > 10) {
+                            fprintf(stderr, "[TEX-LOAD] mat=%d stage=%d texNoRaw=%u numTex=%d\n",
+                                    mpMaterial->getIndex(), i, (unsigned)texNoRaw, tex->getNum());
+                            s_tl2++;
+                        }
+                    }
                     if (texNo == 0xFFFF && tex->getNum() > 0) {
                         texNo = (i < (int)tex->getNum()) ? (u16)i : 0;
                         if (g_pc_verbose) {
