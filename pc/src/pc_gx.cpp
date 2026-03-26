@@ -491,8 +491,9 @@ static void pc_gx_submit_indexed_attr(u32 vtxfmt, u32 attr, u16 idx) {
         return;
     }
 
-    /* Corrupt shape data can provide absurd indices and walk off array bounds. */
-    if (idx > 0x7FF || stride > 0x100) {
+    /* Corrupt shape data can provide absurd indices and walk off array bounds.
+     * TP room models can have 10000+ vertices so allow indices up to 0xFFFF. */
+    if (idx > 0xFFFF || stride > 0x100) {
         if (g_pc_verbose) {
             static int s_bad_idx_log = 0;
             if (s_bad_idx_log++ < 64) {
