@@ -715,8 +715,10 @@ static int dScnPly_Execute(dScnPly_c* i_this) {
 #ifdef TARGET_PC
     base_process_class* base = (base_process_class*)i_this;
     if (fpcM_GetName(i_this) == fpcNm_OPENING_SCENE_e && base->pause_flag != 0) {
-        fprintf(stderr, "[PLAY] forcing OPENING_SCENE unpause (pause_flag=%d)\n", base->pause_flag);
-        fopScnPause_Disable(i_this);
+        /* Only unpause if NOT disabled by draw crash handler (bit 1) */
+        if (!(base->pause_flag & 2)) {
+            fopScnPause_Disable(i_this);
+        }
     }
     /* On PC, actors load asynchronously. Many actors dereference the player
      * pointer during Execute without NULL checks. Wait until the player actor

@@ -27,22 +27,34 @@ int fpcDw_Execute(base_process_class* i_proc) {
         if (s_dw_log < 120) s_dw_log++;
     }
     if (i_proc->profname == fpcNm_OPENING_SCENE_e && i_proc->pause_flag != 0) {
-        fprintf(stderr, "[DW] forcing OPENING_SCENE draw unpause (pause=%d)\n", i_proc->pause_flag);
-        i_proc->pause_flag = 0;
+        /* Only unpause if NOT disabled by draw crash handler (bit 1) */
+        if (!(i_proc->pause_flag & 2)) {
+            i_proc->pause_flag = 0;
+        }
     }
 #endif
+    /* Track actors whose draw permanently crashed — immune to pause flag resets */
+    static base_process_class* s_draw_crashed_procs[64];
+    static int s_draw_crashed_count = 0;
+    {
+        for (int i = 0; i < s_draw_crashed_count; i++) {
+            if (s_draw_crashed_procs[i] == i_proc) {
+                return 0; /* Already crashed — skip permanently */
+            }
+        }
+    }
     if (!fpcPause_IsEnable(i_proc, 2)) {
         layer_class* save_layer;
         int ret;
         process_method_func draw_func;
-    
+
         save_layer = fpcLy_CurrentLayer();
         if (fpcBs_Is_JustOfType(g_fpcLf_type, i_proc->subtype)) {
             draw_func = ((leafdraw_method_class*)i_proc->methods)->draw_method;
         } else {
             draw_func = ((nodedraw_method_class*)i_proc->methods)->draw_method;
         }
-    
+
         fpcLy_SetCurrentLayer(i_proc->layer_tag.layer);
 #ifdef TARGET_PC
         jmp_buf drawBuf;
@@ -51,16 +63,15 @@ int fpcDw_Execute(base_process_class* i_proc) {
         if (setjmp(drawBuf) != 0) {
             pc_crash_set_jmpbuf(prevDrawBuf);
             static int s_draw_crash = 0;
-            if (s_draw_crash++ < 10) {
-                fprintf(stderr, "[DW] Draw crashed: profname=%d addr=%p — disabling draw for this proc\n",
+            if (s_draw_crash++ < 20) {
+                fprintf(stderr, "[DW] Draw crashed: profname=%d addr=%p — permanently disabling\n",
                         i_proc->profname, (void*)pc_crash_get_addr());
             }
-            /* Abort any in-progress GX primitive to prevent partial draws
-             * (like giant white triangles from incomplete screen effects). */
             pc_gx_abort_draw();
-            /* Disable draw for this process to prevent repeated crashes
-             * and cascade failures that lead to segfault. */
             i_proc->pause_flag |= 2;
+            if (s_draw_crashed_count < 64) {
+                s_draw_crashed_procs[s_draw_crashed_count++] = i_proc;
+            }
             fpcLy_SetCurrentLayer(save_layer);
             return 0;
         }
