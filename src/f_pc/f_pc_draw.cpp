@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <csetjmp>
 extern "C" void pc_crash_set_jmpbuf(jmp_buf* buf);
+extern "C" void pc_gx_abort_draw(void);
 extern "C" jmp_buf* pc_crash_get_jmpbuf(void);
 extern "C" uintptr_t pc_crash_get_addr(void);
 #endif
@@ -54,6 +55,9 @@ int fpcDw_Execute(base_process_class* i_proc) {
                 fprintf(stderr, "[DW] Draw crashed: profname=%d addr=%p — disabling draw for this proc\n",
                         i_proc->profname, (void*)pc_crash_get_addr());
             }
+            /* Abort any in-progress GX primitive to prevent partial draws
+             * (like giant white triangles from incomplete screen effects). */
+            pc_gx_abort_draw();
             /* Disable draw for this process to prevent repeated crashes
              * and cascade failures that lead to segfault. */
             i_proc->pause_flag |= 2;

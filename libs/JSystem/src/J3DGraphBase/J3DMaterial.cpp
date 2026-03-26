@@ -397,15 +397,18 @@ void J3DMaterial::load() {
         jmp_buf matBuf;
         jmp_buf* prevMatBuf = pc_crash_get_jmpbuf();
         pc_crash_set_jmpbuf(&matBuf);
+        volatile int matLoadPhase = 0;
         if (setjmp(matBuf) == 0) {
-            mTevBlock->load();
-            mIndBlock->load();
-            mPEBlock->load();
+            matLoadPhase = 1; mTevBlock->load();
+            matLoadPhase = 2; mIndBlock->load();
+            matLoadPhase = 3; mPEBlock->load();
+            matLoadPhase = 4;
             J3DGDSetGenMode(mTexGenBlock->getTexGenNum(), mColorBlock->getColorChanNum(),
                             mTevBlock->getTevStageNum(), mIndBlock->getIndTexStageNum(),
                             (GXCullMode)(u8)mColorBlock->getCullMode());
-            mTexGenBlock->load();
-            mColorBlock->load();
+            matLoadPhase = 5; mTexGenBlock->load();
+            matLoadPhase = 6; mColorBlock->load();
+            matLoadPhase = 7;
             J3DGDSetNumChans(mColorBlock->getColorChanNum());
             J3DGDSetNumTexGens(mTexGenBlock->getTexGenNum());
             loadNBTScale(*mTexGenBlock->getNBTScale());
@@ -463,9 +466,9 @@ void J3DMaterial::load() {
             }
         } else {
             static int s_matload_crash = 0;
-            if (s_matload_crash++ < 5) {
-                fprintf(stderr, "[J3D] material load crashed (addr=%p idx=%d), using defaults\n",
-                        (void*)pc_crash_get_addr(), mIndex);
+            if (s_matload_crash++ < 30) {
+                fprintf(stderr, "[J3D] material load crashed (addr=%p idx=%d phase=%d), using defaults\n",
+                        (void*)pc_crash_get_addr(), mIndex, (int)matLoadPhase);
             }
             /* Set minimal default state so draws don't break */
             GXSetNumChans(1);
