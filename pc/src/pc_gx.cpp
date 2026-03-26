@@ -1370,16 +1370,15 @@ static void upload_uniforms(void) {
         {
             static int s_tex_diag = 0;
             u32 retrace = VIGetRetraceCount();
-            if (s_tex_diag < 20 && g_gx.projection_type == GX_PERSPECTIVE && retrace > 600) {
-                fprintf(stderr, "[TEX-DIAG] flush #%d: tex=[%d,%d,%d,%d] gl=[%u,%u,%u,%u] tev=%d "
-                        "s0:cin=(%d,%d,%d,%d) ain=(%d,%d,%d,%d) tm=%d tc=%d\n",
+            if (s_tex_diag < 40 && g_gx.projection_type == GX_PERSPECTIVE && retrace > 600) {
+                fprintf(stderr, "[TEX-DIAG] flush #%d: tex=[%d,%d,%d,%d] gl=[%u,%u,%u,%u] tev=%d tg=%d "
+                        "s0:cin=(%d,%d,%d,%d) tm=%d tc=%d cc=%d\n",
                         s_tex_diag, use_tex[0], use_tex[1], use_tex[2], use_tex[3],
                         g_gx.gl_textures[0], g_gx.gl_textures[1],
                         g_gx.gl_textures[2], g_gx.gl_textures[3],
-                        num_tev,
+                        num_tev, num_tgens,
                         tev[0].color_a, tev[0].color_b, tev[0].color_c, tev[0].color_d,
-                        tev[0].alpha_a, tev[0].alpha_b, tev[0].alpha_c, tev[0].alpha_d,
-                        tev[0].tex_map, tev[0].tex_coord);
+                        tev[0].tex_map, tev[0].tex_coord, tev[0].color_chan);
                 s_tex_diag++;
             }
         }

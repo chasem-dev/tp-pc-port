@@ -543,7 +543,25 @@ GLuint pc_gx_texture_decode_and_upload(void* data, int width, int height, int fo
             decode_palette(tlut, tlut_format, tlut_count > 0 ? tlut_count : 256, palette);
             decode_CI8(src, pixels, width, height, palette);
             break;
-        case 0xE: decode_CMPR(src, pixels, width, height); break;
+        case 0xE:
+            decode_CMPR(src, pixels, width, height);
+            {
+                static int s_cmpr_dump = 0;
+                if (s_cmpr_dump < 5) {
+                    /* Check if decoded pixels have non-zero data */
+                    int nonzero = 0;
+                    for (int i = 0; i < width * height * 4 && i < 65536; i++) {
+                        if (pixels[i] != 0) { nonzero++; }
+                    }
+                    fprintf(stderr, "[CMPR] decoded %dx%d: nonzero=%d/%d px[0]=(%d,%d,%d,%d) px[100]=(%d,%d,%d,%d)\n",
+                            width, height, nonzero, width*height*4,
+                            pixels[0], pixels[1], pixels[2], pixels[3],
+                            width*height>100 ? pixels[400] : 0, width*height>100 ? pixels[401] : 0,
+                            width*height>100 ? pixels[402] : 0, width*height>100 ? pixels[403] : 0);
+                    s_cmpr_dump++;
+                }
+            }
+            break;
         default:
             /* Unknown format: magenta checkerboard */
             for (int y = 0; y < height; y++) {
