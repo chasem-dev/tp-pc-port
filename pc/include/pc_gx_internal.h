@@ -142,6 +142,7 @@ typedef struct {
     int snap_valid;  /* 1 if snapshot was taken */
     float snap_pos_mtx[3][4]; /* Modelview snapshot at GXBegin */
     int snap_current_mtx;
+    float snap_tev_colors[4][4]; /* TEV color snapshot at GXBegin */
     float tev_colors[4][4];    /* PREV, REG0, REG1, REG2 */
     float tev_k_colors[4][4];
     PCGXTevSwapTable tev_swap_table[4];
@@ -315,6 +316,11 @@ void   pc_gx_texture_cache_insert(void* data, int width, int height, int format,
                                   u32 tlut_hash, u32 data_hash,
                                   u32 wrap_s, u32 wrap_t, u32 min_filter,
                                   GLuint gl_tex);
+
+/* J3D texture registration — called from J3DGD on PC to store full
+ * 64-bit texture pointers that would be truncated by BP register writes. */
+void pc_j3d_set_tex_img_ptr(int map_id, void* image_ptr);
+void pc_j3d_set_tex_img_attr(int map_id, int width, int height, int format);
 
 #ifdef __cplusplus
 }

@@ -259,7 +259,10 @@ void pc_platform_init(void) {
         exit(1);
     }
 
-    SDL_GL_SetSwapInterval(0); /* Manual frame pacing in VIWaitForRetrace */
+    /* Use vsync for frame pacing — SwapInterval(1) blocks SDL_GL_SwapWindow
+     * until the next monitor refresh, providing reliable 60fps timing.
+     * The manual busy-wait in VIWaitForRetrace serves as a fallback. */
+    SDL_GL_SetSwapInterval(1);
     pc_platform_update_window_size();
     g_pc_gl_owner_thread_id = SDL_ThreadID();
 
@@ -289,14 +292,20 @@ void pc_platform_shutdown(void) {
 
 static int s_screenshot_frame = 0;
 
+extern "C" void pc_platform_clear_and_swap(void) {
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    SDL_GL_SwapWindow(g_pc_window);
+}
+
 extern "C" void pc_platform_swap_buffers(void) {
     s_screenshot_frame++;
 
 
 
     /* Auto-screenshot */
-    if (s_screenshot_frame == 500 || s_screenshot_frame == 1000 || s_screenshot_frame == 1500) {
-        glReadBuffer(GL_BACK);
+    if (s_screenshot_frame == 660 || s_screenshot_frame == 680 || s_screenshot_frame == 700) {
+        glReadBuffer(GL_FRONT);
         int w = g_pc_window_w, h = g_pc_window_h;
         unsigned char* pixels = (unsigned char*)malloc(w * h * 3);
         if (pixels) {

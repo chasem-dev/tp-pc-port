@@ -10990,6 +10990,7 @@ static int camera_draw(camera_process_class* i_this) {
     int trim_height = body->TrimHeight();
     window->setScissor(0.0f, trim_height, FB_WIDTH, FB_HEIGHT - trim_height * 2.0f);
     C_MTXPerspective(process->view.projMtx, process->view.fovy, process->view.aspect, process->view.near, process->view.far);
+
     mDoMtx_lookAt(process->view.viewMtx, &process->view.lookat.eye, &process->view.lookat.center,
                   &process->view.lookat.up, process->view.bank);
 

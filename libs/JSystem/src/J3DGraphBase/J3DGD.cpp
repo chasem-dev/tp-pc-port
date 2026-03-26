@@ -7,6 +7,11 @@
 #include "JSystem/J3DGraphBase/J3DGD.h"
 #include "JSystem/J3DGraphBase/J3DFifo.h"
 
+#ifdef TARGET_PC
+extern "C" void pc_j3d_set_tex_img_ptr(int map_id, void* image_ptr);
+extern "C" void pc_j3d_set_tex_img_attr(int map_id, int width, int height, int format);
+#endif
+
 void J3DGDSetGenMode(u8 nTexGens, u8 nChans, u8 nTevs, u8 nInds,
                      GXCullMode cm) {
     static u8 cm2hw[4] = {0, 2, 1, 3};
@@ -345,11 +350,21 @@ void J3DGDSetTexLookupMode(GXTexMapID id, GXTexWrapMode wrap_s,
 }
 
 void J3DGDSetTexImgAttr(GXTexMapID id, u16 width, u16 height, GXTexFmt format) {
+#ifdef TARGET_PC
+    static int s_attr_log = 0;
+    if (s_attr_log++ < 10) {
+        fprintf(stderr, "[J3D-TEX] SetTexImgAttr ENTER id=%d w=%d h=%d fmt=%d\n", id, width, height, format);
+    }
+    pc_j3d_set_tex_img_attr(id, width, height, format);
+#endif
     J3DGDWriteBPCmd(BP_IMAGE_ATTR(width - 1, height - 1, format, J3DGDTexImage0Ids[id]));
 }
 
 void J3DGDSetTexImgPtr(GXTexMapID id, void* image_ptr) {
     J3DGDWriteBPCmd(BP_IMAGE_PTR(OSCachedToPhysical(image_ptr) >> 5, J3DGDTexImage3Ids[id]));
+#ifdef TARGET_PC
+    pc_j3d_set_tex_img_ptr(id, image_ptr);
+#endif
 }
 
 void J3DGDSetTexImgPtrRaw(GXTexMapID id, u32 image_ptr_raw) {

@@ -1243,10 +1243,14 @@ static void upload_uniforms(void) {
     }
 
     if (d & PC_GX_DIRTY_TEV_COLORS) {
-        if (g_gx.uloc.tev_prev >= 0) glUniform4fv(g_gx.uloc.tev_prev, 1, g_gx.tev_colors[0]);
-        if (g_gx.uloc.tev_reg0 >= 0) glUniform4fv(g_gx.uloc.tev_reg0, 1, g_gx.tev_colors[1]);
-        if (g_gx.uloc.tev_reg1 >= 0) glUniform4fv(g_gx.uloc.tev_reg1, 1, g_gx.tev_colors[2]);
-        if (g_gx.uloc.tev_reg2 >= 0) glUniform4fv(g_gx.uloc.tev_reg2, 1, g_gx.tev_colors[3]);
+        /* TEV colors are NOT snapshotted — they can be overwritten between
+         * GXBegin and the flush by cleanup/reinit code. Use snapshotted copies
+         * that were saved alongside TEV stages at GXBegin time. */
+        const float (*tev_cols)[4] = snap ? g_gx.snap_tev_colors : g_gx.tev_colors;
+        if (g_gx.uloc.tev_prev >= 0) glUniform4fv(g_gx.uloc.tev_prev, 1, tev_cols[0]);
+        if (g_gx.uloc.tev_reg0 >= 0) glUniform4fv(g_gx.uloc.tev_reg0, 1, tev_cols[1]);
+        if (g_gx.uloc.tev_reg1 >= 0) glUniform4fv(g_gx.uloc.tev_reg1, 1, tev_cols[2]);
+        if (g_gx.uloc.tev_reg2 >= 0) glUniform4fv(g_gx.uloc.tev_reg2, 1, tev_cols[3]);
     }
 
     if (d & PC_GX_DIRTY_TEV_STAGES) {
@@ -1362,6 +1366,23 @@ static void upload_uniforms(void) {
             glActiveTexture(GL_TEXTURE0 + i);
             glBindTexture(GL_TEXTURE_2D, tex ? tex : fallback_tex);
         }
+        /* Diagnostic: log texture + TEV state during 3D scene rendering */
+        {
+            static int s_tex_diag = 0;
+            u32 retrace = VIGetRetraceCount();
+            if (s_tex_diag < 20 && g_gx.projection_type == GX_PERSPECTIVE && retrace > 600) {
+                fprintf(stderr, "[TEX-DIAG] flush #%d: tex=[%d,%d,%d,%d] gl=[%u,%u,%u,%u] tev=%d "
+                        "s0:cin=(%d,%d,%d,%d) ain=(%d,%d,%d,%d) tm=%d tc=%d\n",
+                        s_tex_diag, use_tex[0], use_tex[1], use_tex[2], use_tex[3],
+                        g_gx.gl_textures[0], g_gx.gl_textures[1],
+                        g_gx.gl_textures[2], g_gx.gl_textures[3],
+                        num_tev,
+                        tev[0].color_a, tev[0].color_b, tev[0].color_c, tev[0].color_d,
+                        tev[0].alpha_a, tev[0].alpha_b, tev[0].alpha_c, tev[0].alpha_d,
+                        tev[0].tex_map, tev[0].tex_coord);
+                s_tex_diag++;
+            }
+        }
 
         /* Upload u_use_texture[0..7] and u_texture[0..7] */
         for (int i = 0; i < 8; i++) {
@@ -1416,31 +1437,6 @@ static void upload_uniforms(void) {
         if (g_gx.uloc.fog_color >= 0) glUniform4fv(g_gx.uloc.fog_color, 1, g_gx.fog_color);
     }
 
-    /* Debug: log GX state for first few draw calls of scene frames */
-    {
-        static int s_uniform_log = 0;
-        static int s_prev_tev = -1;
-        u32 r = VIGetRetraceCount();
-        /* Log when TEV stage count changes or first few draws */
-        if (r > 500 && (s_uniform_log < 15 || (num_tev != s_prev_tev && s_uniform_log < 50))) {
-            const PCGXTevStage* s0 = &tev[0];
-            fprintf(stderr, "[GX-STATE] tev=%d chans=%d lit=%d matSrc=%d ambSrc=%d "
-                    "mat=(%.2f,%.2f,%.2f) amb=(%.2f,%.2f,%.2f) "
-                    "s0=[cIn=%d,%d,%d,%d aIn=%d,%d,%d,%d tm=%d tc=%d] "
-                    "fog=%d tex0=%u lmask=0x%x prev=(%.2f,%.2f,%.2f)\n",
-                    num_tev, num_ch, g_gx.chan_ctrl_enable[0],
-                    g_gx.chan_ctrl_mat_src[0], g_gx.chan_ctrl_amb_src[0],
-                    g_gx.chan_mat_color[0][0], g_gx.chan_mat_color[0][1], g_gx.chan_mat_color[0][2],
-                    g_gx.chan_amb_color[0][0], g_gx.chan_amb_color[0][1], g_gx.chan_amb_color[0][2],
-                    s0->color_a, s0->color_b, s0->color_c, s0->color_d,
-                    s0->alpha_a, s0->alpha_b, s0->alpha_c, s0->alpha_d,
-                    s0->tex_map, s0->tex_coord,
-                    g_gx.fog_type, g_gx.gl_textures[0], g_gx.chan_ctrl_light_mask[0],
-                    g_gx.tev_colors[0][0], g_gx.tev_colors[0][1], g_gx.tev_colors[0][2]);
-            s_prev_tev = num_tev;
-            s_uniform_log++;
-        }
-    }
 }
 
 /* ============================================================
@@ -1554,8 +1550,8 @@ void pc_gx_flush_vertices(void) {
 
     /* Force ortho projection for 2D quads: if all vertices have z=0 and the
      * projection is perspective, the w=0 divide produces undefined results.
-     * This happens during logo/boot screens where the Painter's 3D camera setup
-     * leaves a stale perspective projection. */
+     * Disabled: J2DOrthoGraph now sets orthographic correctly before 2D draws.
+     * The override was causing inconsistent projection matrices between frames. */
     if (g_gx.projection_type == GX_PERSPECTIVE && count >= 4 &&
         g_gx.current_primitive == GX_QUADS) {
         bool all_z0 = true;
@@ -1579,8 +1575,9 @@ void pc_gx_flush_vertices(void) {
             ortho[2][3] = 0.0f;
             memcpy(g_gx.projection_mtx, ortho, sizeof(ortho));
             g_gx.projection_type = GX_ORTHOGRAPHIC;
-            /* Force all dirty flags so projection, modelview, and TEV
-             * are all re-uploaded for this draw */
+            /* Force all dirty flags so projection, modelview, and TEV state
+             * are all re-uploaded. TEV colors use snap_tev_colors (snapshotted
+             * at GXBegin) so they won't be corrupted by post-GXEnd reinit. */
             g_gx.dirty = 0xFFFFFFFF;
             /* Disable back-face culling: the Y-flip in the ortho matrix
              * reverses winding order, causing CW quads to be culled */
@@ -1592,6 +1589,7 @@ void pc_gx_flush_vertices(void) {
             }
         }
     }
+
 
 /* Select shader and cache uniforms if changed */
     GLuint shader = pc_gx_tev_get_shader(&g_gx);
@@ -1684,6 +1682,8 @@ void pc_gx_flush_vertices(void) {
     g_gx.dirty = 0;
     g_gx.snap_valid = 0;  /* Clear snapshot after uniform upload */
 
+    /* Diagnostic removed — moved to upload_uniforms */
+
     if (VIGetRetraceCount() < 6 &&
         g_gx.current_primitive == GX_QUADS && g_gx.num_tex_gens == 0 &&
         g_gx.num_tev_stages == 1 && g_gx.tev_stages[0].tex_map == GX_TEXMAP_NULL &&
@@ -1693,6 +1693,7 @@ void pc_gx_flush_vertices(void) {
         return;
     }
 
+    /* Debug: log all quad draws during early frames */
     /* NOTE: draw_boot_simple_quad disabled — using separate VAO with glDrawArrays
      * triggers a different Metal pipeline key that crashes Apple's shader compiler
      * on ARM64 Macs. All draws now go through the main VAO with glDrawElements. */
@@ -2054,8 +2055,12 @@ void GXAbortFrame(void) {}
 void GXBegin(u32 primitive, u32 vtxfmt, u16 nVerts) {
     /* Auto-flush previous batch if still in_begin (omitted GXEnd) */
     if (g_gx.in_begin && g_gx.current_vertex_idx > 0) {
+        /* Save dirty flags — the flush clears them, but state set between
+         * the previous GXEnd and this GXBegin must still be applied. */
+        u32 saved_dirty = g_gx.dirty;
         if (g_gx.vertex_pending) commit_vertex();
         pc_gx_flush_vertices();
+        g_gx.dirty |= saved_dirty;
     }
     g_gx.current_primitive = primitive;
     g_gx.current_vtxfmt = vtxfmt;
@@ -2072,6 +2077,7 @@ void GXBegin(u32 primitive, u32 vtxfmt, u16 nVerts) {
      * that was active at GXBegin time. */
     g_gx.snap_num_tev_stages = g_gx.num_tev_stages;
     memcpy(g_gx.snap_tev_stages, g_gx.tev_stages, sizeof(g_gx.tev_stages));
+    memcpy(g_gx.snap_tev_colors, g_gx.tev_colors, sizeof(g_gx.tev_colors));
     g_gx.snap_num_tex_gens = g_gx.num_tex_gens;
     g_gx.snap_num_chans = g_gx.num_chans;
     g_gx.snap_alpha_comp0 = g_gx.alpha_comp0;
@@ -2126,6 +2132,11 @@ static int pc_gx_calc_vertex_size(u32 vtxfmt) {
     }
     return size;
 }
+
+/* Forward declarations for functions used in the DL parser */
+void GXLoadTexObj(void* obj, u32 mapID);
+void GXInitTexObj(void* obj, void* data, u16 w, u16 h, u32 fmt, u32 wrapS, u32 wrapT, u32 mipmap);
+static int pc_j3d_tex_lookup(u32 phys_key, void** out_ptr, int* out_w, int* out_h, int* out_fmt);
 
 static int s_dl_calls_this_frame = 0;
 static int s_dl_prims_this_frame = 0;
@@ -2628,6 +2639,31 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
                     }
                 }
                 DIRTY(PC_GX_DIRTY_KONST | PC_GX_DIRTY_SWAP_TABLES);
+            } else if ((reg >= 0x94 && reg <= 0x97) || (reg >= 0xB4 && reg <= 0xB7)) {
+                /* TX_SETIMAGE3: texture data pointer per map */
+                int map_id = (reg >= 0xB4) ? (reg - 0xB4 + 4) : (reg - 0x94);
+                u32 phys_key = data & 0x1FFFFF;
+                void* tex_ptr = NULL;
+                int tw = 0, th = 0, tf = 0;
+                int found = pc_j3d_tex_lookup(phys_key, &tex_ptr, &tw, &th, &tf);
+                {
+                    static int s_lookup_log = 0;
+                    u32 r = VIGetRetraceCount();
+                    if (r > 600 && s_lookup_log < 20) {
+                        fprintf(stderr, "[DL-TEX] TX_SETIMAGE3 reg=0x%02x map=%d key=0x%05x found=%d ptr=%p w=%d h=%d fmt=%d\n",
+                                reg, map_id, phys_key, found, tex_ptr, tw, th, tf);
+                        s_lookup_log++;
+                    }
+                }
+                if (found && tex_ptr) {
+                    PCTexObj tex;
+                    GXInitTexObj(&tex, tex_ptr, tw, th, tf, GX_CLAMP, GX_CLAMP, GX_FALSE);
+                    GXLoadTexObj(&tex, (u32)map_id);
+                }
+            } else if ((reg >= 0x88 && reg <= 0x8B) || (reg >= 0xA8 && reg <= 0xAB)) {
+                /* TX_SETIMAGE0: texture dimensions/format — used to update pending state
+                 * but actual loading happens when TX_SETIMAGE3 arrives */
+                (void)data; /* Handled via J3D side table */
             }
             p += 5;
         } else if ((cmd & 0x80) != 0) {
@@ -2959,10 +2995,14 @@ void GXSetTevAlphaOp(u32 stage, u32 op, u32 bias, u32 scale, u32 clamp, u32 out)
 }
 void GXSetTevColor(u32 reg, u32 color) {
     if (reg < 4) {
-        g_gx.tev_colors[reg][0] = GXCOLOR_R(color) / 255.0f;
-        g_gx.tev_colors[reg][1] = GXCOLOR_G(color) / 255.0f;
-        g_gx.tev_colors[reg][2] = GXCOLOR_B(color) / 255.0f;
-        g_gx.tev_colors[reg][3] = GXCOLOR_A(color) / 255.0f;
+        float r = GXCOLOR_R(color) / 255.0f;
+        float g = GXCOLOR_G(color) / 255.0f;
+        float b = GXCOLOR_B(color) / 255.0f;
+        float a = GXCOLOR_A(color) / 255.0f;
+        g_gx.tev_colors[reg][0] = r;
+        g_gx.tev_colors[reg][1] = g;
+        g_gx.tev_colors[reg][2] = b;
+        g_gx.tev_colors[reg][3] = a;
         DIRTY(PC_GX_DIRTY_TEV_COLORS);
     }
 }
@@ -3103,6 +3143,95 @@ void GXInitTexObjLOD(void* obj, u32 minFilt, u32 magFilt, f32 minLOD, f32 maxLOD
     tex->max_aniso = maxAniso;
 }
 
+/* --- J3D texture registration (PC) ---
+ * J3DGDSetTexImgAttr/Ptr write BP commands whose 21-bit address field
+ * cannot hold 64-bit pointers. These helpers store the full pointer and
+ * dimensions in a lookup table keyed by the truncated physical address.
+ * The DL parser looks up the real pointer when it encounters the BP reg. */
+#define PC_J3D_TEX_TABLE_SIZE 512
+static struct {
+    u32 phys_key;   /* truncated physical addr >> 5 */
+    void* ptr;
+    u16 width, height;
+    u32 format;
+} s_j3d_tex_table[PC_J3D_TEX_TABLE_SIZE];
+static int s_j3d_tex_table_count = 0;
+
+/* Pending per-map state — ptr and attr arrive in either order */
+static struct {
+    void* ptr;
+    u16 width, height;
+    u32 format;
+    int has_ptr;
+    int has_attr;
+} s_j3d_pending[8];
+
+static void pc_j3d_try_insert(int map_id) {
+    if (map_id < 0 || map_id >= 8) return;
+    if (!s_j3d_pending[map_id].has_ptr || !s_j3d_pending[map_id].has_attr) return;
+    void* ptr = s_j3d_pending[map_id].ptr;
+    if (!ptr) return;
+    u32 phys = (u32)(uintptr_t)ptr;
+    u32 key = phys >> 5;
+    /* Check if already in table */
+    for (int i = 0; i < s_j3d_tex_table_count; i++) {
+        if (s_j3d_tex_table[i].phys_key == key) {
+            s_j3d_tex_table[i].ptr = ptr;
+            s_j3d_tex_table[i].width = s_j3d_pending[map_id].width;
+            s_j3d_tex_table[i].height = s_j3d_pending[map_id].height;
+            s_j3d_tex_table[i].format = s_j3d_pending[map_id].format;
+            s_j3d_pending[map_id].has_ptr = 0;
+            s_j3d_pending[map_id].has_attr = 0;
+            return;
+        }
+    }
+    if (s_j3d_tex_table_count < PC_J3D_TEX_TABLE_SIZE) {
+        int i = s_j3d_tex_table_count++;
+        s_j3d_tex_table[i].phys_key = key;
+        s_j3d_tex_table[i].ptr = ptr;
+        s_j3d_tex_table[i].width = s_j3d_pending[map_id].width;
+        s_j3d_tex_table[i].height = s_j3d_pending[map_id].height;
+        s_j3d_tex_table[i].format = s_j3d_pending[map_id].format;
+        s_j3d_pending[map_id].has_ptr = 0;
+        s_j3d_pending[map_id].has_attr = 0;
+    }
+}
+
+void pc_j3d_set_tex_img_attr(int map_id, int width, int height, int format) {
+    if (map_id < 0 || map_id >= 8) return;
+    s_j3d_pending[map_id].width = (u16)width;
+    s_j3d_pending[map_id].height = (u16)height;
+    s_j3d_pending[map_id].format = (u32)format;
+    s_j3d_pending[map_id].has_attr = 1;
+    pc_j3d_try_insert(map_id);
+}
+
+void pc_j3d_set_tex_img_ptr(int map_id, void* image_ptr) {
+    if (map_id < 0 || map_id >= 8 || !image_ptr) return;
+    s_j3d_pending[map_id].ptr = image_ptr;
+    s_j3d_pending[map_id].has_ptr = 1;
+    static int s_ptr_log = 0;
+    if (s_ptr_log++ < 20) {
+        fprintf(stderr, "[J3D-TEX] set_ptr map=%d ptr=%p has_attr=%d table=%d\n",
+                map_id, image_ptr, s_j3d_pending[map_id].has_attr, s_j3d_tex_table_count);
+    }
+    pc_j3d_try_insert(map_id);
+}
+
+/* Look up a J3D texture by its truncated physical key */
+static int pc_j3d_tex_lookup(u32 phys_key, void** out_ptr, int* out_w, int* out_h, int* out_fmt) {
+    for (int i = 0; i < s_j3d_tex_table_count; i++) {
+        if (s_j3d_tex_table[i].phys_key == phys_key) {
+            *out_ptr = s_j3d_tex_table[i].ptr;
+            *out_w = s_j3d_tex_table[i].width;
+            *out_h = s_j3d_tex_table[i].height;
+            *out_fmt = s_j3d_tex_table[i].format;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* No-flush variant for reinitTexture — just clears the GL texture slot */
 extern "C" void pc_gx_load_tex_obj_nf(void* obj, u32 mapID) {
     if (mapID >= 8) return;
@@ -3151,7 +3280,11 @@ void GXLoadTexObj(void* obj, u32 mapID) {
                                                  tex->format, (void*)tlut_ptr, tlut_fmt, tlut_cnt);
         if (gl_tex) {
             glBindTexture(GL_TEXTURE_2D, gl_tex);
-            GLenum gl_filter = tex->min_filter ? GL_LINEAR : GL_NEAREST;
+            /* Use GL_NEAREST for textures with alpha channels (IA4, IA8,
+             * RGB5A3) to prevent color bleed from linear filtering
+             * interpolating transparent pixels with opaque ones. */
+            bool has_alpha_fmt = (tex->format == 0x2 || tex->format == 0x3 || tex->format == 0x5);
+            GLenum gl_filter = (has_alpha_fmt || !tex->min_filter) ? GL_NEAREST : GL_LINEAR;
             GLenum gl_wrap_s = (tex->wrap_s == GX_MIRROR) ? GL_MIRRORED_REPEAT :
                                (tex->wrap_s == GX_CLAMP) ? GL_CLAMP_TO_EDGE : GL_REPEAT;
             GLenum gl_wrap_t = (tex->wrap_t == GX_MIRROR) ? GL_MIRRORED_REPEAT :
@@ -3183,17 +3316,24 @@ void GXLoadTexObj(void* obj, u32 mapID) {
 }
 
 void GXInitTlutObj(void* obj, void* data, u32 fmt, u16 nEntries) {
-    /* Store TLUT data pointer in the obj (we just use it as a pass-through) */
-    (void)obj; (void)data; (void)fmt; (void)nEntries;
+    /* Pack {data, format, count} into the 12-byte GXTlutObj.
+     * Layout: [0..7] data pointer, [8..9] format, [10..11] n_entries */
+    u8* raw = (u8*)obj;
+    memcpy(raw, &data, sizeof(void*));
+    *(u16*)(raw + sizeof(void*)) = (u16)fmt;
+    *(u16*)(raw + sizeof(void*) + 2) = nEntries;
 }
 void GXLoadTlut(void* obj, u32 tlutName) {
-    /* The game's TLUT loading path: store pointer for later CI texture decode */
-    (void)obj;
-    if (tlutName < 16) {
-        /* The TLUT data will be referenced when GXLoadTexObj is called with a CI texture */
-        /* The actual tlut data pointer is passed via GXInitTlutObj; for now we handle this
-         * through the GXInitTexObjCI path which sets tlut_name */
-    }
+    if (tlutName >= 16) return;
+    /* Unpack the data stored by GXInitTlutObj */
+    u8* raw = (u8*)obj;
+    void* data;
+    memcpy(&data, raw, sizeof(void*));
+    u16 fmt = *(u16*)(raw + sizeof(void*));
+    u16 cnt = *(u16*)(raw + sizeof(void*) + 2);
+    g_gx.tlut[tlutName].data = data;
+    g_gx.tlut[tlutName].format = fmt;
+    g_gx.tlut[tlutName].n_entries = cnt;
 }
 void GXInvalidateTexAll(void) {
     /* GC invalidates TMEM bindings here. On PC the cache is keyed by source content,
@@ -3404,7 +3544,10 @@ void GXSetCopyClear(u32 color, u32 z) {
     g_gx.clear_color[0] = GXCOLOR_R(color) / 255.0f;
     g_gx.clear_color[1] = GXCOLOR_G(color) / 255.0f;
     g_gx.clear_color[2] = GXCOLOR_B(color) / 255.0f;
-    g_gx.clear_color[3] = GXCOLOR_A(color) / 255.0f;
+    /* Force clear alpha to 1.0 — GCN doesn't use framebuffer alpha for
+     * display compositing, but on PC alpha=0 makes the window transparent
+     * and shows the OS window background (white) through. */
+    g_gx.clear_color[3] = 1.0f;
 #endif
     g_gx.clear_depth = z / 16777215.0f;
     glClearColor(g_gx.clear_color[0], g_gx.clear_color[1], g_gx.clear_color[2], g_gx.clear_color[3]);

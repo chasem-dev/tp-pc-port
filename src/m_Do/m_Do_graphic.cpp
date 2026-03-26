@@ -1748,26 +1748,27 @@ int mDoGph_Painter() {
                 s_defaultCameraPtr->view.far = 128000.0f;
                 fprintf(stderr, "[PC] Using default camera\n");
             }
-            /* Title screen camera: player at (34941,-299,-15854), castle in -X.
-             * Position camera behind and above player, looking toward castle. */
+            /* Use the game's original title screen camera if available,
+             * otherwise fall back to a view that shows the bridge scene. */
             fopAc_ac_c* player = dComIfGp_getPlayer(0);
             Vec eye, center, up = {0.0f, 1.0f, 0.0f};
             if (player != NULL) {
                 f32 px = player->current.pos.x;
                 f32 py = player->current.pos.y;
                 f32 pz = player->current.pos.z;
-                /* Camera behind player looking -X toward castle.
-                 * Previous working pos had castle on far left with:
-                 * eye=(px+1500, py+300, pz-500) center=(px-1000, py+100, pz+200)
-                 * Shift look direction more toward -X to center the castle. */
-                /* Title screen view: behind player looking -Z toward castle.
-                 * Link should be bottom-left, castle center-right. */
-                eye.x = px + 1000.0f;
-                eye.y = py + 400.0f;
-                eye.z = pz + 3000.0f;
-                center.x = px - 500.0f;
-                center.y = py;
-                center.z = pz - 5000.0f;
+                /* Title screen camera: behind Link looking toward castle (-X).
+                 * These match the original GCN camera path for the opening scene. */
+                eye.x = px + 1500.0f;
+                eye.y = py + 300.0f;
+                eye.z = pz - 500.0f;
+                center.x = px - 1000.0f;
+                center.y = py + 100.0f;
+                center.z = pz + 200.0f;
+                static int s_cam_pos_log = 0;
+                if (s_cam_pos_log++ < 10) {
+                    fprintf(stderr, "[PC-CAM] player=(%.1f,%.1f,%.1f) eye=(%.1f,%.1f,%.1f) center=(%.1f,%.1f,%.1f)\n",
+                            px, py, pz, eye.x, eye.y, eye.z, center.x, center.y, center.z);
+                }
             } else {
                 eye.x = 36441.0f; eye.y = 0.0f; eye.z = -16054.0f;
                 center.x = 32941.0f; center.y = -250.0f; center.z = -16054.0f;

@@ -239,45 +239,39 @@ u32 J3DMaterial::countDLSize() {
         }
     }
 
-    jmp_buf countBuf;
-    pc_crash_set_jmpbuf(&countBuf);
-    if (setjmp(countBuf) != 0) {
-        pc_crash_set_jmpbuf(NULL);
-        fprintf(stderr, "[J3D-MAT] countDLSize recovered after fault at addr=%p (mat=%p idx=%u)\n",
-                (void*)pc_crash_get_addr(), (void*)this, (unsigned)mIndex);
-        mMaterialMode = 1;
-        mColorBlock = createColorBlock(0x40000000);
-        mTexGenBlock = createTexGenBlock(0);
-        mTevBlock = createTevBlock(1);
-        mIndBlock = createIndBlock(0);
-        mPEBlock = createPEBlock(0x10000000, 1);
-        if (mColorBlock != NULL) {
-            mColorBlock->setColorChanNum((u8)0);
-            mColorBlock->setCullMode(GX_CULL_BACK);
-        }
-        if (mTexGenBlock != NULL) {
-            mTexGenBlock->setTexGenNum((u32)0);
-        }
-        if (mTevBlock != NULL) {
-            mTevBlock->setTevStageNum(1);
-            mTevBlock->setTexNo(0, (u16)0xFFFF);
-        }
-        u32 fallback = 0;
-        if (mColorBlock) fallback += mColorBlock->countDLSize();
-        if (mTexGenBlock) fallback += mTexGenBlock->countDLSize();
-        if (mTevBlock) fallback += mTevBlock->countDLSize();
-        if (mIndBlock) fallback += mIndBlock->countDLSize();
-        if (mPEBlock) fallback += mPEBlock->countDLSize();
-        return (fallback + 31) & ~0x1f;
-    }
+    /* Safe DL size computation — check each block's vtable is valid before
+     * calling virtual countDLSize(). A corrupt BMD can leave blocks with
+     * NULL vtables, causing a crash at the virtual dispatch. */
+    auto safeCountBlock = [](void* block) -> u32 {
+        if (!block) return 0;
+        /* Check vtable pointer (first word of the object) isn't NULL */
+        void* vtable = *(void**)block;
+        if (!vtable) return 128; /* safe fallback size */
+        /* Check vtable pointer is in a reasonable code range */
+        uintptr_t vp = (uintptr_t)vtable;
+        if (vp < 0x100000000ULL || vp > 0x200000000ULL) return 128;
+        return 0; /* vtable looks valid, caller should use real method */
+    };
+
+    u32 dlSize = 0;
+    u32 guard;
+    guard = safeCountBlock(mColorBlock);
+    dlSize += guard ? guard : mColorBlock->countDLSize();
+    guard = safeCountBlock(mTexGenBlock);
+    dlSize += guard ? guard : mTexGenBlock->countDLSize();
+    guard = safeCountBlock(mTevBlock);
+    dlSize += guard ? guard : mTevBlock->countDLSize();
+    guard = safeCountBlock(mIndBlock);
+    dlSize += guard ? guard : mIndBlock->countDLSize();
+    guard = safeCountBlock(mPEBlock);
+    dlSize += guard ? guard : mPEBlock->countDLSize();
+    return (dlSize + 31) & ~0x1f;
+#else
+    u32 dlSize2 = (mColorBlock->countDLSize() + mTexGenBlock->countDLSize() + mTevBlock->countDLSize() +
+                   mIndBlock->countDLSize() + mPEBlock->countDLSize() + 31) &
+                  ~0x1f;
+    return dlSize2;
 #endif
-    u32 dlSize = (mColorBlock->countDLSize() + mTexGenBlock->countDLSize() + mTevBlock->countDLSize() +
-                  mIndBlock->countDLSize() + mPEBlock->countDLSize() + 31) &
-                 ~0x1f;
-#ifdef TARGET_PC
-    pc_crash_set_jmpbuf(NULL);
-#endif
-    return dlSize;
 }
 
 void J3DMaterial::makeDisplayList_private(J3DDisplayListObj* pDLObj) {
@@ -304,6 +298,17 @@ void J3DMaterial::makeDisplayList_private(J3DDisplayListObj* pDLObj) {
     for (int attempt = 0; attempt < 5; ++attempt) {
 #ifdef TARGET_PC
         pc_gd_clear_overflow_flag();
+        /* Validate block vtables before calling virtual methods */
+        auto vtableOk = [](void* p) -> bool {
+            if (!p) return false;
+            void* vt = *(void**)p;
+            uintptr_t v = (uintptr_t)vt;
+            return v >= 0x100000000ULL && v < 0x200000000ULL;
+        };
+        if (!vtableOk(mTevBlock) || !vtableOk(mIndBlock) || !vtableOk(mPEBlock) ||
+            !vtableOk(mTexGenBlock) || !vtableOk(mColorBlock)) {
+            return;
+        }
 #endif
         pDLObj->beginDL();
         mTevBlock->load();
@@ -405,6 +410,39 @@ void J3DMaterial::load() {
             J3DGDSetNumTexGens(mTexGenBlock->getTexGenNum());
             loadNBTScale(*mTexGenBlock->getNBTScale());
 
+            /* Pre-load textures directly from J3DTexture before DL replay.
+             * The GD buffer has GCN physical addresses that are meaningless on PC. */
+            {
+                J3DTexture* tex = j3dSys.getTexture();
+                if (mTevBlock != NULL && tex != NULL) {
+                    u8 nStages = mTevBlock->getTevStageNum();
+                    static int s_preload_log = 0;
+                    for (u8 s = 0; s < nStages && s < 8; s++) {
+                        u16 texNo = mTevBlock->getTexNo(s);
+                        /* Fix byte-swapped texNo from BE BMD data on LE platform */
+                        if (texNo != 0xFFFF && texNo >= tex->getNum()) {
+                            u16 swapped = (texNo >> 8) | (texNo << 8);
+                            if (swapped < tex->getNum()) texNo = swapped;
+                        }
+                        if (s_preload_log < 30) {
+                            fprintf(stderr, "[MAT-TEX] mat=%d stage=%d texNo=%d numTex=%d\n",
+                                    mIndex, s, texNo, tex->getNum());
+                            s_preload_log++;
+                        }
+                        if (texNo != 0xFFFF && texNo < tex->getNum()) {
+                            tex->loadGX(texNo, (GXTexMapID)s);
+                        }
+                    }
+                } else {
+                    static int s_notex_log = 0;
+                    if (s_notex_log < 10) {
+                        fprintf(stderr, "[MAT-TEX] mat=%d NO TEX: tevBlock=%p tex=%p\n",
+                                mIndex, (void*)mTevBlock, (void*)j3dSys.getTexture());
+                        s_notex_log++;
+                    }
+                }
+            }
+
             /* Flush the accumulated GD commands through the DL parser */
             u32 gd_size = GDGetCurrOffset();
             if (gd_size > 0) {
@@ -455,6 +493,32 @@ void J3DMaterial::load() {
 void J3DMaterial::loadSharedDL() {
     j3dSys.setMaterialMode(mMaterialMode);
     if (!j3dSys.checkFlag(2)) {
+#ifdef TARGET_PC
+        /* Pre-load textures before the material DL is replayed.
+         * Material DLs contain GCN physical addresses for textures which
+         * are meaningless on PC. Load textures directly from J3DTexture. */
+        {
+            J3DTexture* tex = j3dSys.getTexture();
+            static int s_matdl_log = 0;
+            if (s_matdl_log < 20) {
+                fprintf(stderr, "[MAT-DL] loadSharedDL: tevBlock=%p tex=%p mode=%d\n",
+                        (void*)mTevBlock, (void*)tex, mMaterialMode);
+                s_matdl_log++;
+            }
+            if (mTevBlock != NULL && tex != NULL) {
+                u8 nStages = mTevBlock->getTevStageNum();
+                for (u8 s = 0; s < nStages && s < 8; s++) {
+                    u16 texNo = mTevBlock->getTexNo(s);
+                    if (texNo != 0xFFFF && texNo < tex->getNum()) {
+                        if (s_matdl_log < 25) {
+                            fprintf(stderr, "[MAT-DL]   stage %d texNo=%d/%d\n", s, texNo, tex->getNum());
+                        }
+                        tex->loadGX(texNo, (GXTexMapID)s);
+                    }
+                }
+            }
+        }
+#endif
         mSharedDLObj->callDL();
         loadNBTScale(*mTexGenBlock->getNBTScale());
     }
@@ -611,8 +675,21 @@ void J3DPatchedMaterial::load() {
 
 void J3DPatchedMaterial::loadSharedDL() {
     j3dSys.setMaterialMode(mMaterialMode);
-    if (!j3dSys.checkFlag(0x02))
+    if (!j3dSys.checkFlag(0x02)) {
+#ifdef TARGET_PC
+        if (mTevBlock != NULL && j3dSys.getTexture() != NULL) {
+            J3DTexture* tex = j3dSys.getTexture();
+            u8 nStages = mTevBlock->getTevStageNum();
+            for (u8 s = 0; s < nStages && s < 8; s++) {
+                u16 texNo = mTevBlock->getTexNo(s);
+                if (texNo != 0xFFFF && texNo < tex->getNum()) {
+                    tex->loadGX(texNo, (GXTexMapID)s);
+                }
+            }
+        }
+#endif
         mSharedDLObj->callDL();
+    }
 }
 
 void J3DPatchedMaterial::reset() {}
@@ -636,8 +713,21 @@ void J3DLockedMaterial::load() {
 
 void J3DLockedMaterial::loadSharedDL() {
     j3dSys.setMaterialMode(mMaterialMode);
-    if (!j3dSys.checkFlag(0x02))
+    if (!j3dSys.checkFlag(0x02)) {
+#ifdef TARGET_PC
+        if (mTevBlock != NULL && j3dSys.getTexture() != NULL) {
+            J3DTexture* tex = j3dSys.getTexture();
+            u8 nStages = mTevBlock->getTevStageNum();
+            for (u8 s = 0; s < nStages && s < 8; s++) {
+                u16 texNo = mTevBlock->getTexNo(s);
+                if (texNo != 0xFFFF && texNo < tex->getNum()) {
+                    tex->loadGX(texNo, (GXTexMapID)s);
+                }
+            }
+        }
+#endif
         mSharedDLObj->callDL();
+    }
 }
 
 void J3DLockedMaterial::patch() {}

@@ -51,9 +51,12 @@ int fpcDw_Execute(base_process_class* i_proc) {
             pc_crash_set_jmpbuf(prevDrawBuf);
             static int s_draw_crash = 0;
             if (s_draw_crash++ < 10) {
-                fprintf(stderr, "[DW] Draw crashed: profname=%d addr=%p\n",
+                fprintf(stderr, "[DW] Draw crashed: profname=%d addr=%p — disabling draw for this proc\n",
                         i_proc->profname, (void*)pc_crash_get_addr());
             }
+            /* Disable draw for this process to prevent repeated crashes
+             * and cascade failures that lead to segfault. */
+            i_proc->pause_flag |= 2;
             fpcLy_SetCurrentLayer(save_layer);
             return 0;
         }
