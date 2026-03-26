@@ -1527,6 +1527,16 @@ void pc_gx_flush_vertices(void) {
         g_gx.batch_pretransformed = 0;
         return;
     }
+    /* Debug: skip untextured 3D draws to reveal textured geometry behind */
+    {
+        static const char* env = getenv("TP_SKIP_UNTEX");
+        if (env && atoi(env) && g_gx.projection_type == GX_PERSPECTIVE && g_gx.num_tex_gens == 0) {
+            g_gx.vertex_count = 0;
+            g_gx.current_vertex_idx = 0;
+            g_gx.batch_pretransformed = 0;
+            return;
+        }
+    }
     /* Per-frame draw stats */
     {
         u32 r = VIGetRetraceCount();
@@ -2796,6 +2806,17 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
                     "[DL-EMPTY] size=%u prims=0 first16=%02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x %02x%02x%02x%02x\n",
                     nbytes, raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
                     raw[8], raw[9], raw[10], raw[11], raw[12], raw[13], raw[14], raw[15]);
+        }
+    }
+    /* Log per-DL primitive count for large shape DLs */
+    if (nbytes > 1000 && ((const u8*)list)[0] != 0x61) {
+        static int s_bigdl_log = 0;
+        u32 r = VIGetRetraceCount();
+        if (r > 500 && s_bigdl_log < 20) {
+            int prims = primitive_cmd_count - primitive_cmd_count_before;
+            fprintf(stderr, "[DL-BIG] size=%u prims=%d first=%02x vtx_submitted=%d\n",
+                    nbytes, prims, ((const u8*)list)[0], g_gx.current_vertex_idx);
+            s_bigdl_log++;
         }
     }
     /* Log DLs that found no primitives */
