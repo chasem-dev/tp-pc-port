@@ -4,6 +4,12 @@
 */
 
 #include "d/dolzel_rel.h" // IWYU pragma: keep
+#ifdef TARGET_PC
+#include <setjmp.h>
+extern "C" void pc_crash_set_jmpbuf(jmp_buf* buf);
+extern "C" jmp_buf* pc_crash_get_jmpbuf(void);
+extern "C" uintptr_t pc_crash_get_addr(void);
+#endif
 
 #include "d/actor/d_a_grass.h"
 #include "SSystem/SComponent/c_counter.h"
@@ -383,8 +389,28 @@ static int daGrass_execute(daGrass_c* i_this) {
 }
 
 int daGrass_c::draw() {
+#ifdef TARGET_PC
+    /* Grass/flower packet update() crashes on PC due to uninitialized
+     * internal state (BE/LE pointer issues in packet data). Guard it. */
+    jmp_buf grassBuf;
+    jmp_buf* prev = pc_crash_get_jmpbuf();
+    pc_crash_set_jmpbuf(&grassBuf);
+    if (setjmp(grassBuf) != 0) {
+        pc_crash_set_jmpbuf(prev);
+        static bool s_warned = false;
+        if (!s_warned) {
+            s_warned = true;
+            fprintf(stderr, "[GRASS] draw crashed at %p — disabling grass rendering\n",
+                    (void*)pc_crash_get_addr());
+        }
+        return 1;
+    }
+#endif
     drawGrass();
     drawFlower();
+#ifdef TARGET_PC
+    pc_crash_set_jmpbuf(prev);
+#endif
     return 1;
 }
 
