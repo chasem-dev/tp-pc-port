@@ -4,6 +4,12 @@
  */
 
 #include "d/dolzel.h" // IWYU pragma: keep
+#ifdef TARGET_PC
+#include <setjmp.h>
+extern "C" void pc_crash_set_jmpbuf(jmp_buf* buf);
+extern "C" jmp_buf* pc_crash_get_jmpbuf(void);
+extern "C" uintptr_t pc_crash_get_addr(void);
+#endif
 
 #include "d/d_s_play.h"
 #include "JSystem/JUtility/JUTConsole.h"
@@ -548,8 +554,29 @@ static int dScnPly_Draw(dScnPly_c* i_this) {
     dStage_DebugDisp();
     #endif
 
+#ifdef TARGET_PC
+    {
+        jmp_buf scnDrawBuf;
+        jmp_buf* prevBuf = pc_crash_get_jmpbuf();
+        pc_crash_set_jmpbuf(&scnDrawBuf);
+        if (setjmp(scnDrawBuf) != 0) {
+            pc_crash_set_jmpbuf(prevBuf);
+            static bool s_warned = false;
+            if (!s_warned) {
+                s_warned = true;
+                fprintf(stderr, "[SCENE] Ccsp/Bgsp crashed at %p — skipping collision update\n",
+                        (void*)pc_crash_get_addr());
+            }
+        } else {
+            dComIfG_Ccsp()->Move();
+            dComIfG_Bgsp().ClrMoveFlag();
+            pc_crash_set_jmpbuf(prevBuf);
+        }
+    }
+#else
     dComIfG_Ccsp()->Move();
     dComIfG_Bgsp().ClrMoveFlag();
+#endif
 
     if (!fopOvlpM_IsPeek() && !dComIfG_resetToOpening(i_this)) {
         if (dComIfGp_isEnableNextStage()
