@@ -2155,7 +2155,7 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
         u32 r = VIGetRetraceCount();
         if (r != s_dl_last_retrace) {
             static int s_dl_frame_log = 0;
-            if (s_dl_frame_log < 10 && s_dl_calls_this_frame > 0 && r > 370) {
+            if (s_dl_frame_log < 30 && s_dl_calls_this_frame > 0 && r > 370) {
                 fprintf(stderr, "[DL-STATS] frame %u: %d DL calls, %d primitives\n",
                         s_dl_last_retrace, s_dl_calls_this_frame, s_dl_prims_this_frame);
                 s_dl_frame_log++;
@@ -2169,13 +2169,23 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
     static int s_gxcdl = 0;
     if (g_pc_verbose && (s_gxcdl++ < 500 || nbytes > 5000)) {
         u8 first = list ? ((const u8*)list)[0] : 0;
-        /* Only log non-NOP display lists (skip VcdVatCmd which starts with 0x00) */
         if (first != 0x00 || nbytes > 200) {
-            fprintf(stderr, "[GX] GXCallDisplayList: list=%p size=%u first4=%02x%02x%02x%02x\n",
-                    list, nbytes,
-                    ((const u8*)list)[0], ((const u8*)list)[1],
-                    ((const u8*)list)[2], ((const u8*)list)[3]);
+            /* Minimal log for most DLs */
+        }
+    }
+    /* Dump first 80 bytes of large shape DLs */
+    if (nbytes > 6000 && list) {
+        static int s_dl_hex_dump = 0;
+        if (s_dl_hex_dump < 5) {
+            const u8* lp = (const u8*)list;
+            fprintf(stderr, "[DL-RAW] size=%u hex80=[", nbytes);
+            for (int i = 0; i < 80 && i < (int)nbytes; i++) {
+                fprintf(stderr, "%02x ", lp[i]);
+                if (i % 16 == 15 && i < 79) fprintf(stderr, "\n                       ");
+            }
+            fprintf(stderr, "]\n");
             fflush(stderr);
+            s_dl_hex_dump++;
         }
     }
     if (list == NULL || nbytes == 0) {
@@ -2237,6 +2247,7 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
     }
 
     int primitive_cmd_count_before = primitive_cmd_count;
+    int dl_probed_stride = 0; /* 0 = not yet probed; >0 = confirmed stride for this DL */
 
     while (p < end) {
         u8 cmd = *p;
@@ -2281,6 +2292,7 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
                             g_gx.vtx_fmt[vtxfmt].cnt[attr] = cnt;
                             g_gx.vtx_fmt[vtxfmt].type[attr] = type;
                             g_gx.vtx_fmt[vtxfmt].frac[attr] = frac;
+                            g_gx.vtx_fmt[vtxfmt].valid[attr] = 1;
                         }
                     };
                     int posCnt = (val >> 0) & 0x1;
@@ -2317,6 +2329,7 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
                             g_gx.vtx_fmt[vtxfmt].cnt[attr] = cnt;
                             g_gx.vtx_fmt[vtxfmt].type[attr] = type;
                             g_gx.vtx_fmt[vtxfmt].frac[attr] = frac;
+                            g_gx.vtx_fmt[vtxfmt].valid[attr] = 1;
                         }
                     };
                     set_fmt(GX_VA_TEX1, (val >> 0) & 0x1, (val >> 1) & 0x7, (val >> 4) & 0x1F);
@@ -2329,15 +2342,19 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
                 int vtxfmt = addr - 0x90;
                 if (vtxfmt >= 0 && vtxfmt < PC_GX_MAX_VTXFMT) {
                     g_gx.vtx_fmt[vtxfmt].frac[GX_VA_TEX4] = (val >> 0) & 0x1F;
+                    g_gx.vtx_fmt[vtxfmt].valid[GX_VA_TEX4] = 1;
                     g_gx.vtx_fmt[vtxfmt].cnt[GX_VA_TEX5] = (val >> 5) & 0x1;
                     g_gx.vtx_fmt[vtxfmt].type[GX_VA_TEX5] = (val >> 6) & 0x7;
                     g_gx.vtx_fmt[vtxfmt].frac[GX_VA_TEX5] = (val >> 9) & 0x1F;
+                    g_gx.vtx_fmt[vtxfmt].valid[GX_VA_TEX5] = 1;
                     g_gx.vtx_fmt[vtxfmt].cnt[GX_VA_TEX6] = (val >> 14) & 0x1;
                     g_gx.vtx_fmt[vtxfmt].type[GX_VA_TEX6] = (val >> 15) & 0x7;
                     g_gx.vtx_fmt[vtxfmt].frac[GX_VA_TEX6] = (val >> 18) & 0x1F;
+                    g_gx.vtx_fmt[vtxfmt].valid[GX_VA_TEX6] = 1;
                     g_gx.vtx_fmt[vtxfmt].cnt[GX_VA_TEX7] = (val >> 23) & 0x1;
                     g_gx.vtx_fmt[vtxfmt].type[GX_VA_TEX7] = (val >> 24) & 0x7;
                     g_gx.vtx_fmt[vtxfmt].frac[GX_VA_TEX7] = (val >> 27) & 0x1F;
+                    g_gx.vtx_fmt[vtxfmt].valid[GX_VA_TEX7] = 1;
                 }
             } else if (addr >= 0xB0 && addr < 0xC0) {
                 int attr = addr - 0xB0;
@@ -2694,7 +2711,114 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
             s_dl_prims_this_frame++;
 
             int vtx_size = pc_gx_calc_vertex_size(vat_idx);
+
+            /* Auto-probe stride for shape DLs: if the calculated stride
+             * doesn't land on a valid next command, find the correct stride
+             * and adjust the VCD to match. This fixes shapes whose VtxDescList
+             * entry was selected incorrectly by the pc_pick_vcd_offset heuristic. */
+            /* Auto-probe stride: check from p (vertex data start) if the calculated
+             * stride lands on a valid command. If not, find the correct stride.
+             * Only probe the first prim; cache result for the rest of the DL. */
+            if (dl_probed_stride > 0 && dl_probed_stride != vtx_size) {
+                /* Apply cached stride correction */
+                int cur = vtx_size;
+                if (dl_probed_stride < cur) {
+                    for (int a = GX_VA_TEX7; a >= GX_VA_POS && cur > dl_probed_stride; a--) {
+                        if (g_gx.vtx_desc[a] == GX_INDEX16 && cur - 2 >= dl_probed_stride) {
+                            g_gx.vtx_desc[a] = GX_NONE; cur -= 2;
+                        } else if (g_gx.vtx_desc[a] == GX_INDEX8 && cur - 1 >= dl_probed_stride) {
+                            g_gx.vtx_desc[a] = GX_NONE; cur -= 1;
+                        }
+                    }
+                }
+                vtx_size = dl_probed_stride;
+            }
+            if (dl_probed_stride == 0 && nbytes > 1000 && vtx_count > 0 && vtx_count <= 500) {
+                u32 calc_end = (u32)vtx_count * vtx_size;
+                bool calc_ok = false;
+                if (p + calc_end + 2 < end) {
+                    u8 nxt = p[calc_end];
+                    if (nxt == 0x98 || nxt == 0x90 || nxt == 0xA0 || nxt == 0x80) {
+                        u16 nc = read_be16(p + calc_end + 1);
+                        calc_ok = (nc > 0 && nc < 500);
+                    }
+                }
+                if (!calc_ok && (p + (u32)vtx_count * 4 < end)) {
+                    for (int try_s = 4; try_s <= 24; try_s++) {
+                        u32 try_end = (u32)vtx_count * try_s;
+                        if (p + try_end >= end) continue;
+                        u8 nb = p[try_end];
+                        if (nb == 0x98 || nb == 0x90 || nb == 0xA0 || nb == 0x80) {
+                            u16 nc = (p + try_end + 2 < end) ? read_be16(p + try_end + 1) : 0;
+                            if (nc > 0 && nc < 500) {
+                                u32 off2 = try_end + 3 + nc * try_s;
+                                if (p + off2 < end && (p[off2] == 0x98 || p[off2] == 0x90 ||
+                                    p[off2] == 0xA0 || p[off2] == 0x80 || p[off2] == 0x00)) {
+                                    int cur_stride = vtx_size;
+                                    if (try_s < cur_stride) {
+                                        for (int a = GX_VA_TEX7; a >= GX_VA_POS && cur_stride > try_s; a--) {
+                                            if (g_gx.vtx_desc[a] == GX_INDEX16 && cur_stride - 2 >= try_s) {
+                                                g_gx.vtx_desc[a] = GX_NONE;
+                                                cur_stride -= 2;
+                                            } else if (g_gx.vtx_desc[a] == GX_INDEX8 && cur_stride - 1 >= try_s) {
+                                                g_gx.vtx_desc[a] = GX_NONE;
+                                                cur_stride -= 1;
+                                            }
+                                        }
+                                    } else if (try_s > cur_stride) {
+                                        /* Real stride is LARGER — need more attrs. Add I16 attrs. */
+                                        for (int a = GX_VA_CLR0; a <= GX_VA_TEX7 && cur_stride < try_s; a++) {
+                                            if (g_gx.vtx_desc[a] == GX_NONE && cur_stride + 2 <= try_s) {
+                                                g_gx.vtx_desc[a] = GX_INDEX16;
+                                                cur_stride += 2;
+                                            }
+                                        }
+                                    }
+                                    vtx_size = try_s;
+                                    dl_probed_stride = try_s;
+                                    static int s_stride_fix_log = 0;
+                                    if (s_stride_fix_log++ < 10)
+                                        fprintf(stderr, "[STRIDE-FIX] dlSize=%u orig=%d real=%d vtxCnt=%u prim#%d\n",
+                                                nbytes, cur_stride, try_s, vtx_count, primitive_cmd_count);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (dl_probed_stride == 0) {
+                    dl_probed_stride = vtx_size; /* Calculated stride is correct */
+                }
+            }
+
             u32 data_size = (u32)vtx_count * vtx_size;
+
+            if (nbytes > 10000) {
+                static int s_stride_log = 0;
+                if (s_stride_log < 15 && primitive_cmd_count <= 2) {
+                    fprintf(stderr, "[GX-STRIDE] vat=%u vtxCount=%u stride=%d dataSize=%u remain=%ld dlSize=%u VCD=[",
+                            vat_idx, vtx_count, vtx_size, data_size, (long)(end - p), nbytes);
+                    for (int a = 0; a <= GX_VA_TEX7; a++) {
+                        if (g_gx.vtx_desc[a] != GX_NONE) {
+                            int as = (g_gx.vtx_desc[a] == GX_DIRECT) ? pc_gx_attr_size(vat_idx, a) : 0;
+                            fprintf(stderr, "%d:%s", a,
+                                    g_gx.vtx_desc[a]==1?"D":g_gx.vtx_desc[a]==2?"I8":"I16");
+                            if (g_gx.vtx_desc[a] == GX_DIRECT) fprintf(stderr, "(%d)", as);
+                            fprintf(stderr, " ");
+                        }
+                    }
+                    fprintf(stderr, "] valid=[");
+                    PCGXVertexFormat* vf = &g_gx.vtx_fmt[vat_idx];
+                    for (int a = 0; a <= GX_VA_TEX7; a++) {
+                        if (g_gx.vtx_desc[a] != GX_NONE)
+                            fprintf(stderr, "%d:%d ", a, vf->valid[a]);
+                    }
+                    fprintf(stderr, "]\n");
+                    fflush(stderr);
+                    s_stride_log++;
+                }
+            }
+
             if (vtx_size == 0 || p + data_size > end || vtx_count > 5000) {
                 /* Invalid primitive — parser may be misaligned. Skip this byte
                  * and continue searching for valid commands. Don't break. */
@@ -2784,11 +2908,37 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
             GXEnd();
             g_gx.cpu_xform_vertices = 0;
             if (vp != p + data_size) {
-                static bool s_warned_dl_alignment = false;
-                if (!s_warned_dl_alignment) {
-                    s_warned_dl_alignment = true;
+                static int s_warned_dl_alignment = 0;
+                if (s_warned_dl_alignment < 5) {
+                    s_warned_dl_alignment++;
                     fprintf(stderr, "[GX] DL vertex decode misaligned: fmt=%u expected=%u got=%ld\n",
                             vat_idx, data_size, (long)(vp - p));
+                }
+            }
+            if (nbytes > 5000 && primitive_cmd_count <= 1) {
+                static int s_post_prim_log = 0;
+                if (s_post_prim_log < 10) {
+                    /* Find the REAL next 0x98 command by scanning forward */
+                    int next98 = -1;
+                    for (int i = 0; i < 200 && vp + i < end; i++) {
+                        if (vp[i] == 0x98 || vp[i] == 0x90) {
+                            u16 nc = (vp+i+2 < end) ? read_be16(vp+i+1) : 0;
+                            if (nc > 0 && nc < 1000) { next98 = i; break; }
+                        }
+                    }
+                    int actual_stride = (next98 >= 0 && vtx_count > 0)
+                        ? ((int)(vp - p) + next98 - 0) / (int)vtx_count  /* from p: prim data offset */
+                        : -1;
+                    /* stride from prim start: (vp-p) is already vtx_count*vtx_size, so real stride =
+                       total bytes from p to next cmd / vtx_count */
+                    int total_from_p = (int)(vp - p) + next98;
+                    int real_stride = (vtx_count > 0 && next98 >= 0) ? total_from_p / (int)vtx_count : -1;
+                    int remainder = (vtx_count > 0 && next98 >= 0) ? total_from_p % (int)vtx_count : -1;
+                    fprintf(stderr, "[STRIDE-CHECK] dlSize=%u vtxCnt=%u calcStride=%d next98offset=%d "
+                            "totalBytes=%d realStride=%d remainder=%d\n",
+                            nbytes, vtx_count, vtx_size, next98, total_from_p, real_stride, remainder);
+                    fflush(stderr);
+                    s_post_prim_log++;
                 }
             }
             p = vp;
@@ -2797,6 +2947,14 @@ void GXCallDisplayList(const void* list, u32 nbytes) {
         }
     }
 
+    if (nbytes > 1000 && primitive_cmd_count > primitive_cmd_count_before) {
+        static int s_per_dl_log = 0;
+        if (s_per_dl_log < 20) {
+            fprintf(stderr, "[DL-PRIMS] dlSize=%u prims=%d\n", nbytes, primitive_cmd_count - primitive_cmd_count_before);
+            fflush(stderr);
+            s_per_dl_log++;
+        }
+    }
     /* Log large DLs (geometry data) that produce no primitives */
     if (primitive_cmd_count == 0 && nbytes > 64) {
         static int s_no_prim_log = 0;

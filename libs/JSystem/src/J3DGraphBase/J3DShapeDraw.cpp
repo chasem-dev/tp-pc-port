@@ -83,7 +83,7 @@ J3DShapeDraw::J3DShapeDraw(const u8* displayList, u32 displayListSize) {
 void J3DShapeDraw::draw() const {
 #ifdef TARGET_PC
     static int s_shape_dl_log = 0;
-    if (s_shape_dl_log < 60 && mDisplayList && mDisplayListSize > 0) {
+    if (s_shape_dl_log < 6 && mDisplayList && mDisplayListSize > 0) {
         const u8* p = (const u8*)mDisplayList;
         fprintf(stderr,
                 "[SHAPE-DL] size=%u first8=%02x%02x%02x%02x %02x%02x%02x%02x\n",

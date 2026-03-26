@@ -301,26 +301,31 @@ void J3DShape::loadCurrentMtx() const {
 
 void J3DShape::loadPreDrawSetting() const {
 #ifdef TARGET_PC
-    if (sOldVcdVatCmd != mVcdVatCmd) {
-        /* Keep PC vertex decode in sync even when VCD/VAT DL decode is partial. */
+    /* On PC, makeVcdVatCmd is skipped so all mVcdVatCmd buffers are zeroed.
+     * sortVcdVatCmd then shares the same pointer across all shapes, making
+     * the sOldVcdVatCmd != mVcdVatCmd check useless — it would only set VCD
+     * for the first shape, and all others would inherit the wrong VCD.
+     * Use mVtxDesc pointer as the comparison key instead: each shape with
+     * a different vertex format has a different mVtxDesc. */
+    static const GXVtxDescList* sOldVtxDesc = NULL;
+    {   /* Always update VCD on PC — force per-shape recalculation */
+        static int s_vtxdesc_dump = 0;
+        if (g_pc_verbose && s_vtxdesc_dump < 30) {
+            fprintf(stderr, "[VCD-DUMP] shape=%d vtxDescPtr=%p entries:", mIndex, (void*)mVtxDesc);
+            u32 cnt = 0;
+            for (const GXVtxDescList* d = mVtxDesc;
+                 d->attr != GX_VA_NULL && cnt++ < 16; d++)
+                fprintf(stderr, " %u=%u", (unsigned)d->attr, (unsigned)d->type);
+            fprintf(stderr, "\n");
+            fflush(stderr);
+            s_vtxdesc_dump++;
+        }
         GXClearVtxDesc();
         bool badDesc = false;
         u32 validDescCount = 0;
         bool hasPos = false;
         bool hasNrm = false;
         bool hasTex0 = false;
-        static int s_vtxdesc_log = 0;
-        if (g_pc_verbose && s_vtxdesc_log++ < 24) {
-            fprintf(stderr, "[J3D-VTXDESC] shape=%p idx=%d:", (void*)this, mIndex);
-            u32 dbgCount = 0;
-            for (const GXVtxDescList* d = mVtxDesc;
-                 d->attr != GX_VA_NULL && dbgCount++ < kMaxSafeVtxDescEntries; d++)
-            {
-                fprintf(stderr, " %u=%u", (unsigned)d->attr, (unsigned)d->type);
-            }
-            fprintf(stderr, "\n");
-            fflush(stderr);
-        }
         u32 safeDescCount = 0;
         for (const GXVtxDescList* desc = mVtxDesc;
              desc->attr != GX_VA_NULL && safeDescCount++ < kMaxSafeVtxDescEntries; desc++)
@@ -337,7 +342,6 @@ void J3DShape::loadPreDrawSetting() const {
         }
 
         if (badDesc || validDescCount == 0 || !hasPos) {
-            /* Mixed-endian SHP1 can corrupt VtxDesc entries; use common indexed layout. */
             GXClearVtxDesc();
             GXSetVtxDesc(GX_VA_POS, GX_INDEX16);
             if (!hasNrm) {
@@ -359,6 +363,7 @@ void J3DShape::loadPreDrawSetting() const {
                 GXSetVtxAttrFmt(GX_VTXFMT0, fmts->attr, fmts->cnt, fmts->type, frac);
             }
         }
+        sOldVtxDesc = mVtxDesc;
         sOldVcdVatCmd = mVcdVatCmd;
     }
     mCurrentMtx.load();
