@@ -849,6 +849,7 @@ static f32 checkGroundY(cXyz& param_0) {
 void dGrass_packet_c::update() {
     static s16 mAngleZ[1500];
 
+
     dGrass_anm_c* anm_p = getAnm();
     for (int i = 0; i < 112; i++) {
         mDoMtx_stack_c::YrotS(anm_p->m_angY);
@@ -870,8 +871,15 @@ void dGrass_packet_c::update() {
     for (int i = 0; i < 1500; i++) {
         if (data_p->m_state != 0) {
             if (data_p->m_state == 1 && var_r26 < 30) {
+#ifdef TARGET_PC
+                /* checkGroundY accesses the BG collision system which may
+                 * not be fully initialized on PC. Skip ground check and
+                 * use the original Y position. */
+                data_p->m_state = 2;
+#else
                 data_p->m_pos.y = checkGroundY(data_p->m_pos);
                 data_p->m_state = 2;
+#endif
                 var_r26++;
             }
 
@@ -958,7 +966,17 @@ void dGrass_packet_c::update() {
     }
 
     mDoLib_clipper::resetFar();
+#ifdef TARGET_PC
+    /* On PC, the draw buffer's mpBuffer array may contain stale pointers
+     * from previous frames that corrupt the packet chain. Skip entryImm
+     * to prevent the grass packet from breaking the draw buffer. Grass
+     * rendering will need its own direct draw path on PC. */
+#ifndef TARGET_PC
     dComIfGd_getListPacket()->entryImm(this, 0);
+#endif
+#else
+    dComIfGd_getListPacket()->entryImm(this, 0);
+#endif
 }
 
 void dGrass_packet_c::setData(dGrass_data_c* i_data, int i_dataNo, cXyz& i_pos, int i_roomNo,
