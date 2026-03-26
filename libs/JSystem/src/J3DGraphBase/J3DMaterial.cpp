@@ -425,8 +425,9 @@ void J3DMaterial::load() {
                             if (swapped < tex->getNum()) texNo = swapped;
                         }
                         if (s_preload_log < 30) {
-                            fprintf(stderr, "[MAT-TEX] mat=%d stage=%d texNo=%d numTex=%d\n",
-                                    mIndex, s, texNo, tex->getNum());
+                            fprintf(stderr, "[MAT-TEX] mat=%d stage=%d texNo=%d numTex=%d tevBlock=%p texNoOff=%u\n",
+                                    mIndex, s, texNo, tex->getNum(),
+                                    (void*)mTevBlock, mTevBlock->getTexNoOffset());
                             s_preload_log++;
                         }
                         if (texNo != 0xFFFF && texNo < tex->getNum()) {

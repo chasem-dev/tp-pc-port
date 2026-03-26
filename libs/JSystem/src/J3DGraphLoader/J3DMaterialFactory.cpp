@@ -784,6 +784,23 @@ u16 J3DMaterialFactory::newTexNo(int i_idx, int i_no) const {
     if (mtl_init_data == NULL) {
         return 0xffff;
     }
+#ifdef TARGET_PC
+    {
+        static int s_texno_log = 0;
+        if (s_texno_log < 30) {
+            u16 rawIdx = mtl_init_data->mTexNoIdx[i_no];
+            u16 result = 0xffff;
+            if (rawIdx != 0xffff && pc_mat_table_readable(this, mpTexNo, rawIdx)) {
+                result = mpTexNo[rawIdx];
+            }
+            if (rawIdx != 0xffff || i_no == 0) {
+                fprintf(stderr, "[TEX-IDX] mat=%d stage=%d mTexNoIdx=0x%04x result=%d\n",
+                        i_idx, i_no, rawIdx, (int)(s16)result);
+                s_texno_log++;
+            }
+        }
+    }
+#endif
     if (mtl_init_data->mTexNoIdx[i_no] != 0xffff) {
 #ifdef TARGET_PC
         if (!pc_mat_table_readable(this, mpTexNo, mtl_init_data->mTexNoIdx[i_no])) {
