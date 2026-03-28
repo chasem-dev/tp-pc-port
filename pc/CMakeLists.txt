@@ -58,7 +58,7 @@ include_directories(
     ${DECOMP_ROOT}/libs/dolphin/include
     ${DECOMP_ROOT}/libs/dolphin/include/dolphin
     ${DECOMP_ROOT}/libs/revolution/include
-    ${DECOMP_ROOT}/assets/DZDE01
+    ${DECOMP_ROOT}/assets/GZ2E01
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/glad/include
 )

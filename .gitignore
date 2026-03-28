@@ -22,13 +22,9 @@ build/
 .ninja_*
 build.ninja
 
-# decompctx output
-ctx.*
-*.ctx
-
-# Generated configs
-objdiff.json
+# Optional IDE / tooling
 compile_commands.json
+.claude/
 
 # Miscellaneous
 /*.txt
