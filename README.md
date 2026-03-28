@@ -1,174 +1,88 @@
-# The Legend of Zelda: Twilight Princess
+# The Legend of Zelda: Twilight Princess — PC Port
 
-[![Build Status]][actions] [![Discord Badge]][discord] [![GZ2E01]][progress] [![GZ2P01]][progress] [![GZ2J01]][progress] [![ShieldD]][progress]
+This project is a **native PC port** of *Twilight Princess* for GameCube. It uses [zeldaret/tp](https://github.com/zeldaret/tp) as its **base foundation**: the game logic and data layouts come from that codebase, while this repository adds a desktop platform layer (SDL2, OpenGL 3.3) so the game runs on macOS, Linux, and Windows. The approach is similar in spirit to the [Animal Crossing (GameCube) PC port](https://github.com/flyngmt/ACGC-PC-Port)—run the game on PC and read assets from a disc image instead of a console.
 
-[Build Status]: https://github.com/zeldaret/tp/actions/workflows/build.yml/badge.svg
-[actions]: https://github.com/zeldaret/tp/actions/workflows/build.yml
-[Discord Badge]: https://img.shields.io/discord/688807550715560050?color=%237289DA&logo=discord&logoColor=%23FFFFFF
-[discord]: https://discord.com/invite/DqwyCBYKqf
-
-[GZ2E01]: https://decomp.dev/zeldaret/tp/GZ2E01.svg?mode=shield&label=GZ2E01
-[GZ2P01]: https://decomp.dev/zeldaret/tp/GZ2P01.svg?mode=shield&label=GZ2P01
-[GZ2J01]: https://decomp.dev/zeldaret/tp/GZ2J01.svg?mode=shield&label=GZ2J01
-<!-- [RZDE01_00]: https://decomp.dev/zeldaret/tp/RZDE01_00.svg?mode=shield&label=RZDE01_00
-[RZDE01_02]: https://decomp.dev/zeldaret/tp/RZDE01_02.svg?mode=shield&label=RZDE01_02
-[RZDP01]: https://decomp.dev/zeldaret/tp/RZDP01.svg?mode=shield&label=RZDP01
-[RZDJ01]: https://decomp.dev/zeldaret/tp/RZDJ01.svg?mode=shield&label=RZDJ01
-[DZDE01]: https://decomp.dev/zeldaret/tp/DZDE01.svg?mode=shield&label=DZDE01
-[Shield]: https://decomp.dev/zeldaret/tp/Shield.svg?mode=shield&label=Shield -->
-[ShieldD]: https://decomp.dev/zeldaret/tp/ShieldD.svg?mode=shield&label=ShieldD
-[progress]: https://decomp.dev/zeldaret/tp
-
-A work-in-progress decompilation of The Legend of Zelda: Twilight Princess.
-
-The code for the GameCube releases is completely matching. However, not every Translation Unit (TU) has been linked yet. Work is continuing by aligning the Debug version and getting the Wii versions to match. All versions are built from the same codebase using conditional compilation.
+The CMake project lives under [`pc/`](pc/). Builds target **64-bit** hosts first (e.g. macOS ARM64, Linux, Windows).
 
 > [!IMPORTANT]
-> This repository does **not** contain any game assets or assembly whatsoever. An existing copy of the game is required.
->
-> This project itself **is not**, and will not, produce a port, to PC or any other platform. It is a decompilation of the original game code, which can be compiled back into a binary identical to the original.
-
-<!-- markdownlint-disable MD033 -->
-[<img src="https://decomp.dev/zeldaret/tp.svg?w=512&h=256" width="512" height="256" alt="A visual">][Progress]
-<!-- markdownlint-enable MD033 -->
-
-The project can target the following supported versions:
-
-- **`GZ2E01`**: GameCube - North America
-- **`GZ2P01`**: GameCube - Europe/Australia
-- **`GZ2J01`**: GameCube - Japan
-- `RZDE01_00`: Wii - North America (Rev 0)
-- `RZDE01_02`: Wii - North America (Rev 2)
-- `RZDP01`: Wii - Europe/Australia
-- `RZDJ01`: Wii - Japan
-- `DZDE01`: Wii - North America (Kiosk Demo) 
-- `Shield`: Nvidia Shield - China
-- `ShieldD`: Nvidia Shield - China (Debug Version)
-
-More information about the project can be found here: <https://zsrtp.link>  
+> This repository does **not** contain game assets or original ROM dumps. You must supply your **own legally obtained copy** of the **North American (USA) GameCube** release as a disc image (product code **GZ2E01**). Other regions or platforms are not supported by this build. The executable reads archives and files from that image at runtime (no separate asset extraction step is required for normal play).
 
 <!--ts-->
-- [Progress](https://zsrtp.link/progress)
+- [Game data and the `rom/` folder](#game-data-and-the-rom-folder)
 - [Dependencies](#dependencies)
-- [Building (Decomp)](#building-decomp)
-- [PC Port Build](#pc-port-build)
-- [Running The PC Port](#running-the-pc-port)
-- [Diffing](#diffing)
-- [Contributing](#contributing)
-- [FAQ](https://zsrtp.link/about)
+- [Build](#build)
+- [Run](#run)
+- [Environment variables (startup)](#environment-variables-startup)
+
+## Game data and the `rom/` folder
+
+The PC port expects a dump of the **USA GameCube** disc—typically an `.iso`, `.gcm`, or `.ciso` file matching retail **GZ2E01** (North America). Do not use European, Japanese, or Wii editions unless you know the port has been updated for that build.
+
+If you have used the **Animal Crossing** GameCube PC port, the workflow here is the same in principle: keep that **single disc image** on disk and point the game at it. Twilight Princess loads data through the port’s “DVD” layer, which reads from that file as if it were a GameCube disc.
+
+**Practical layout:**
+
+- Create a directory named `rom/` in the **repository root** and place your North American image there, for example `rom/GZ2E01.iso`.
+- You can also put the image under `orig/`, or pass the path on the command line (see [Run](#run)).
+
+If you start the executable **without** a path, it searches the current directory and then, in order: `rom/`, `orig/`, `build/rom/`, and `../build/rom/` for a suitable image. Running from the repo root with `rom/GZ2E01.iso` present is usually enough.
 
 ## Dependencies
 
-You will need the following dependencies:
+- **CMake** 3.16+
+- **SDL2** development libraries
+- **OpenGL** development packages where your OS separates them from the base system
+- A **C++ toolchain** (GCC, Clang, or MSVC)
 
-- git
-- ninja
-- python3
-- clang-format (optional)
+| OS | Notes |
+|----|--------|
+| **macOS** | `brew install cmake sdl2` |
+| **Linux** | `cmake`, C++ toolchain, `libsdl2-dev` (or `SDL2-devel`), OpenGL dev packages as needed |
+| **Windows** | CMake, a C++ toolchain (Visual Studio or MinGW), and SDL2 (see `pc/CMakeLists.txt` for `SDL2_DIR` if using bundled hints) |
 
-### Windows
+## Build
 
-On Windows, it's **highly recommended** to use native tooling. WSL or msys2 are **not** required.  
-When running under WSL, [objdiff](#diffing) is unable to get filesystem notifications for automatic rebuilds.
+Configure and compile the PC executable under **`pc/build`** (do not use the repository root `build/` folder for this):
 
-- Install [Python](https://www.python.org/downloads/) and add it to `%PATH%`.
-  - Also available from the [Windows Store](https://apps.microsoft.com/store/detail/python-311/9NRWMJP3717K).
-- Download [ninja](https://github.com/ninja-build/ninja/releases) and add it to `%PATH%`.
-  - Quick install via pip: `pip install ninja`
+```sh
+cmake -S pc -B pc/build
+cmake --build pc/build --parallel
+```
 
-### macOS
+The binary is written to **`pc/build/bin/TwilightPrincess`** (`.exe` on Windows).
 
-- Install [ninja](https://github.com/ninja-build/ninja/wiki/Pre-built-Ninja-packages):
+## Run
 
-  ```sh
-  brew install ninja
-  ```
-
-[wibo](https://github.com/decompals/wibo), a minimal 32-bit Windows binary wrapper, will be automatically downloaded and used.
-
-### Linux
-
-- Install [ninja](https://github.com/ninja-build/ninja/wiki/Pre-built-Ninja-packages).
-
-[wibo](https://github.com/decompals/wibo), a minimal 32-bit Windows binary wrapper, will be automatically downloaded and used.
-
-## Building (Decomp)
-
-- Clone the repository:
-
-  ```sh
-  git clone https://github.com/zeldaret/tp.git
-  ```
-
-- Copy your game's disc image to `orig/GZ2E01`.
-  - Supported formats: ISO (GCM), RVZ, WIA, WBFS, CISO, NFS, GCZ, TGC.
-  - After the initial build, the disc image can be deleted to save space.
-
-- Configure:
-
-  ```sh
-  python configure.py
-  ```
-
-  To use a version other than `GZ2E01` (GCN USA), specify it with `--version`.
-- Build:
-
-  ```sh
-  ninja
-  ```
-
-This is the original decomp build flow. It uses the repository root and the generated root-level `build/` directory.
-
-## PC Port Build
-
-This fork also contains an experimental native PC port build under [`pc/`](pc/). Use that build system for the SDL2/OpenGL executable.
-
-Do not use the repository root `build/` directory for the PC port. Standardize on `pc/build` for all CMake output.
-
-- Install PC port dependencies:
-  - macOS: `brew install cmake sdl2`
-  - Linux: install `cmake`, a C++ toolchain, OpenGL development packages, and `libsdl2-dev`
-- Configure the PC build:
-
-  ```sh
-  cmake -S pc -B pc/build
-  ```
-
-- Build the PC executable:
-
-  ```sh
-  cmake --build pc/build --parallel
-  ```
-
-The PC executable will be written to `pc/build/bin/TwilightPrincess`.
-
-## Running The PC Port
-
-Run the PC port from the repository root and pass the disc image explicitly:
+From the **repository root** (so `rom/` and `orig/` resolve predictably):
 
 ```sh
 ./pc/build/bin/TwilightPrincess /path/to/GZ2E01.iso
 ```
 
-The executable also accepts:
+Or rely on auto-discovery after placing an image under `rom/`:
 
-- `--verbose` or `-v` for diagnostic output
-- `--no-framelimit` to disable the frame limiter
-- `--headless` to skip video initialization for boot testing
-- `--disc /path/to/GZ2E01.iso` as an explicit alternative to the positional disc path
+```sh
+./pc/build/bin/TwilightPrincess
+```
 
-If no disc path is provided, the PC build falls back to searching `.`, `rom/`, `orig/`, `build/rom/`, and `../build/rom/` for `.iso`, `.gcm`, or `.ciso` files.
+Useful flags:
 
-## Diffing
+- `--verbose` or `-v` — extra diagnostic output
+- `--no-framelimit` — disable the frame limiter
+- `--headless` — skip video init (useful for boot tests)
+- `--disc /path/to/GZ2E01.iso` — explicit disc path (alternative to the positional argument)
 
-Once the initial build succeeds, an `objdiff.json` should exist in the project root.
+## Environment variables (startup)
 
-Download the latest release from [encounter/objdiff](https://github.com/encounter/objdiff). Under project settings, set `Project directory`. The configuration should be loaded automatically.
+These are read from the process environment (not command-line flags). Combine with the usual shell syntax, for example:
 
-Select an object from the left sidebar to begin diffing. Changes to the project will rebuild automatically: changes to source files, headers, `configure.py`, `splits.txt` or `symbols.txt`.
+```sh
+TP_SKIP_LOGO=3 ./pc/build/bin/TwilightPrincess
+```
 
-![objdiff application window](assets/objdiff.png)
+| Variable | Meaning |
+|----------|---------|
+| **`TP_SKIP_LOGO`** | Skips part of the opening boot sequence so you reach the main flow faster while debugging. Integer **0** (default): full boot from the start of the logo chain. **1**: resume at the Nintendo logo segment. **2**: resume at the Dolby segment. **3**: resume at the DVD wait screen (furthest skip). |
+| **`TP_SKIP_WARNING`** | Set to **`1`** to preset the internal “warning already shown” state at startup (PC-only helper for iteration). |
 
-## Contributing
-
-If you've got all the requirements set up and want to learn how to contribute to the decompilation effort, join our [Discord server][discord] and check out our [contribution guide](https://zsrtp.link/contribute).
+Other `TP_*` variables exist for graphics debugging and crash handling (for example shader fallbacks on the OpenGL path); see the source under `pc/` and `src/` if you need them.
