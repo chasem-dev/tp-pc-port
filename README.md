@@ -4,6 +4,9 @@ This project is a **native PC port** of *Twilight Princess* for GameCube. It use
 
 The CMake project lives under [`pc/`](pc/). Builds target **64-bit** hosts first (e.g. macOS ARM64, Linux, Windows).
 
+<img width="1217" height="924" alt="image" src="https://github.com/user-attachments/assets/b07493a2-9cf5-443f-85f1-d95c17655a20" />
+
+
 > [!IMPORTANT]
 > This repository does **not** contain game assets or original ROM dumps. You must supply your **own legally obtained copy** of the **North American (USA) GameCube** release as a disc image (product code **GZ2E01**). Other regions or platforms are not supported by this build. The executable reads archives and files from that image at runtime (no separate asset extraction step is required for normal play).
 
