@@ -16,6 +16,7 @@ The CMake project lives under [`pc/`](pc/). Builds target **64-bit** hosts first
 - [Build](#build)
 - [Run](#run)
 - [Environment variables (startup)](#environment-variables-startup)
+- [Disclaimer (AI tooling)](#disclaimer-ai-tooling)
 
 ## Game data and the `rom/` folder
 
@@ -89,3 +90,7 @@ TP_SKIP_LOGO=3 ./pc/build/bin/TwilightPrincess
 | **`TP_SKIP_WARNING`** | Set to **`1`** to preset the internal “warning already shown” state at startup (PC-only helper for iteration). |
 
 Other `TP_*` variables exist for graphics debugging and crash handling (for example shader fallbacks on the OpenGL path); see the source under `pc/` and `src/` if you need them.
+
+## Disclaimer (AI tooling)
+
+Parts of this project—including documentation, repository maintenance, and portions of the PC port code—were developed with assistance from **[Claude Code](https://claude.com/product/claude-code)** (Anthropic’s AI coding tool). Suggestions from that tooling were reviewed and merged by the maintainers; this notice is provided for transparency and does not change licensing or ownership of third-party components (for example the [zeldaret/tp](https://github.com/zeldaret/tp) foundation).
